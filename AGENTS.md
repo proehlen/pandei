@@ -1,4 +1,3 @@
-
 # AGENTS.md
 
 ## Mission & Steam Provenance Guarantee
@@ -46,16 +45,15 @@ When prototyping scenes or entities before human assets exist in `assets_quarant
 - Pre-Task Branch Check:
   1. Run `git status` and check the active branch before making any edits.
   2. If currently on `main` and the working tree is completely clean (`git status --porcelain` is empty), automatically create and check out a new semantic feature branch before editing files:
-    - `feat/<short-kebab-name>` for new features/systems
-    - `fix/<short-kebab-name>` for bug fixes
-    - `chore/<short-kebab-name>` or `test/<short-kebab-name>` for tooling/tests
-  3. If main has any uncommitted changes, untracked files, staged files, or merge conflicts—or if you are already on a dirty branch with unrelated work—stop immediately and ask the user before touching Git or writing code.
+     - `feat/short-kebab-name` for new features/systems
+     - `fix/short-kebab-name` for bug fixes
+     - `chore/short-kebab-name` or `test/short-kebab-name` for tooling/tests
+  3. If you are on `main` and the working tree has any uncommitted changes, untracked files, staged files, or merge conflicts, or if you are already on a dirty branch with unrelated work, stop immediately and ask the user before touching Git or writing code.
 - Semantic Commits (on feature branches only):
   - Commit logical units of work on the active feature branch using Conventional Commits:
-    - feat: <short description>
-    - fix: <short description>
-    - test: <short description>
-    - refactor: <short description>
-    - chore: <short description>
-
+    - feat: short description
+    - fix: short description
+    - test: short description
+    - refactor: short description
+    - chore: short description
 - Never run destructive Git commands (`git reset --hard`, `git clean -fd`, `git push --force`) without explicit user permission.
