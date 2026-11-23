@@ -13,7 +13,13 @@ extends VBoxContainer
 ## HFlowContainer (min width = widest single control, not the row sum) and
 ## no header child carries a large fixed minimum width, so this dock never
 ## blocks the Inspector from being resized; the header simply wraps to more
-## rows as the panel narrows.
+## rows as the panel narrows. The same applies to the status bar below the
+## input row, which is also an HFlowContainer for that reason.
+##
+## The header carries only interactive controls (buttons, dropdowns); all
+## passive status text lives in the slim status bar beneath the prompt input
+## (smaller font, so a shorter row): the git branch, connection/session
+## state, turn state and token usage.
 
 var client: AcpClient = null
 var fs: AcpFsHandler
@@ -25,9 +31,15 @@ var _title_label: Label
 var _status_label: Label
 var _turn_label: Label
 var _usage_label: Label
+var _branch_label: Label
+var _branch_sep: VSeparator
+var _status_bar: HFlowContainer
+var _branch_timer: Timer
+var _status_font_size := 0
 var _session_option: OptionButton
 var _mode_option: OptionButton
 var _transcript: RichTextLabel
+var _input_row: HBoxContainer
 var _input: TextEdit
 var _send_btn: Button
 var _stop_btn: Button
@@ -54,6 +66,14 @@ func _ready() -> void:
 	fs = AcpFsHandler.new(_project_root)
 	custom_minimum_size = Vector2(0, 170)  # keep the panel usable when small
 	_build_ui()
+	# poll the branch name (a cheap .git/HEAD file read) so switching branches
+	# in a terminal shows up here without an editor restart
+	_branch_timer = Timer.new()
+	_branch_timer.wait_time = 1.0
+	_branch_timer.timeout.connect(_refresh_branch)
+	add_child(_branch_timer)
+	_refresh_branch()
+	_branch_timer.start()
 	_append_line_role(TranscriptRoles.ROLE_SYS, "Dock ready. " +
 		("Connecting automatically…" if VibeAcpSettings.is_auto_connect() else "Press Connect to start the agent."))
 	if VibeAcpSettings.is_auto_connect():
@@ -153,19 +173,6 @@ func _build_ui() -> void:
 			VibeAcpSettings.set_mode(mode_id)
 			client.set_mode(mode_id))
 	header.add_child(_mode_option)
-	header.add_child(VSeparator.new())
-
-	_status_label = Label.new()
-	_status_label.text = "disconnected"
-	_status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_status_label.clip_text = true
-	header.add_child(_status_label)
-	_turn_label = Label.new()
-	_turn_label.text = ""
-	header.add_child(_turn_label)
-	_usage_label = Label.new()
-	_usage_label.text = ""
-	header.add_child(_usage_label)
 
 	_transcript = RichTextLabel.new()
 	_transcript.bbcode_enabled = false  # agent text may contain '['; keep it literal
@@ -176,16 +183,16 @@ func _build_ui() -> void:
 	_transcript.meta_clicked.connect(_on_transcript_meta_clicked)
 	add_child(_transcript)
 
-	var input_row := HBoxContainer.new()
-	add_child(input_row)
+	_input_row = HBoxContainer.new()
+	add_child(_input_row)
 	_input = TextEdit.new()
 	_input.custom_minimum_size = Vector2(0, 64)
 	_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_input.placeholder_text = "Ask Vibe… (Ctrl+Enter to send)"
 	_input.gui_input.connect(_on_input_gui_input)
-	input_row.add_child(_input)
+	_input_row.add_child(_input)
 	var btns := VBoxContainer.new()
-	input_row.add_child(btns)
+	_input_row.add_child(btns)
 	_send_btn = Button.new()
 	_send_btn.text = "Send"
 	_send_btn.pressed.connect(_on_send)
@@ -195,6 +202,49 @@ func _build_ui() -> void:
 	_stop_btn.tooltip_text = "Cancel the running turn (session/cancel). Enabled only while a turn is active; stays busy until the agent confirms the turn ended."
 	_stop_btn.pressed.connect(_on_stop)
 	btns.add_child(_stop_btn)
+
+	_build_status_bar()
+
+## Slim status row beneath the prompt input: git branch + connection/session,
+## turn and token-usage labels. A smaller font keeps the row short, and
+## HFlowContainer (not HBox) keeps the dock's minimum width at the widest
+## single label so the Inspector splitter can still resize freely.
+func _build_status_bar() -> void:
+	_status_font_size = maxi(9, get_theme_default_font_size() - 3)
+	_status_bar = HFlowContainer.new()
+	add_child(_status_bar)
+	_branch_label = _make_status_label()
+	_branch_label.tooltip_text = "Current git branch of this project (res://)"
+	_status_bar.add_child(_branch_label)
+	_branch_sep = VSeparator.new()
+	_status_bar.add_child(_branch_sep)
+	_status_label = _make_status_label()
+	_status_label.text = "disconnected"
+	_status_bar.add_child(_status_label)
+	_turn_label = _make_status_label()
+	_status_bar.add_child(_turn_label)
+	_usage_label = _make_status_label()
+	_status_bar.add_child(_usage_label)
+
+func _make_status_label() -> Label:
+	var l := Label.new()
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	l.clip_text = true
+	l.add_theme_font_size_override("font_size", _status_font_size)
+	if is_inside_tree():
+		# dim the status text against the transcript; resolved through the
+		# editor theme so it works in light and dark editor themes alike
+		var c := get_theme_color("font_color", "Label")
+		l.add_theme_color_override("font_color", Color(c.r, c.g, c.b, c.a * 0.65))
+	return l
+
+## Re-read the project's git branch into the status bar. Cheap file read, so
+## the timer in _ready can call this every second.
+func _refresh_branch() -> void:
+	var branch := GitBranch.current_branch(_project_root)
+	_branch_label.text = "git: " + branch if branch != "" else ""
+	_branch_label.visible = branch != ""
+	_branch_sep.visible = branch != ""
 
 # ---------------------------------------------------------------- connection
 

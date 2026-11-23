@@ -36,6 +36,13 @@ browser auth.
 - **Mode dropdown** — approval mode (`session/set_mode`: ask / accept-edits /
   smart-approve / auto-approve), persisted in `vibe_acp/approval_mode`.
 - **Compact** — sends `/compact` so the agent summarizes its context.
+- **Status bar** — a slim row *beneath* the prompt input (smaller font, so it
+  stays short) holds all passive status text, keeping the header for
+  interactive controls only: the current **git branch** of the project
+  (`git: <branch>`, `HEAD@<sha>` when detached, hidden when the project is not
+  a git checkout; refreshed every second, so switching branches in a terminal
+  shows up live), the connection/session state, the turn state
+  (`working…` / `stopping…` / `idle`) and the token usage.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
   `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
@@ -66,6 +73,7 @@ src/tools/vibe_acp/
 ├── acp_codec.gd                # newline-delimited JSON-RPC framing (AcpCodec.LineBuffer)
 ├── acp_transport.gd / pipe_transport.gd  # transport iface + vibe-acp stdio pipe
 ├── acp_fs_handler.gd           # fs/read|write confined to the project root
+├── git_branch.gd               # current git branch from .git/HEAD (UI-free)
 ├── transcript_roles.gd         # update-kind → role/prefix mapping (UI-free)
 └── vibe_acp_settings.gd        # EditorSettings keys
 tests/                          # GdUnit4 suites (codec, dispatcher, client, fs, roles, rendering)
