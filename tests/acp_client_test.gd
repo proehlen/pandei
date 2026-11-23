@@ -141,7 +141,7 @@ func test_prompt_without_session_is_ignored() -> void:
 	client.prompt("hello")
 	assert_that(f["transport"]["written"]).is_empty()
 
-func test_cancel_sends_session_cancel() -> void:
+func test_cancel_sends_session_cancel_as_notification() -> void:
 	var f := _make_client()
 	var client: AcpClient = f["client"]
 	client.session_id = "sess-9"
@@ -150,6 +150,15 @@ func test_cancel_sends_session_cancel() -> void:
 	assert_that(sent).has_size(1)
 	assert_that(sent[0]["method"]).is_equal("session/cancel")
 	assert_that(sent[0]["params"]["sessionId"]).is_equal("sess-9")
+	# ACP defines session/cancel as a notification: no request id, no response.
+	# Sent as a request, the agent answers "method not found" and Stop appeared dead.
+	assert_that(sent[0].has("id")).is_false()
+
+func test_cancel_without_session_sends_nothing() -> void:
+	var f := _make_client()
+	var client: AcpClient = f["client"]
+	client.cancel()
+	assert_that(f["transport"].written).is_empty()
 
 func test_set_mode_and_config_option() -> void:
 	var f := _make_client()

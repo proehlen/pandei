@@ -108,11 +108,15 @@ func prompt(text: String) -> void:
 		prompt_finished.emit(session_id, result, error)
 	)
 
+## ACP defines session/cancel as a *notification* (no id, no response expected).
+## Sending it as a request made the agent answer "method not found" and the
+## Stop button appeared dead while the turn kept running.
 func cancel() -> void:
 	if session_id.is_empty():
 		return
-	_send_request("session/cancel", {"sessionId": session_id},
-		func(_result: Variant, _error: Variant) -> void: pass)
+	if connection == null or not connection.is_open():
+		return
+	connection.send({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": session_id}})
 
 func set_mode(mode_id: String) -> void:
 	if session_id.is_empty() or mode_id.is_empty():

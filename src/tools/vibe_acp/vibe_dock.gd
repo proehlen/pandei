@@ -243,6 +243,7 @@ func _on_new_session() -> void:
 	# Only re-stored after the first prompt in the new session (see _send_text):
 	# vibe-acp does not persist sessions that never received input.
 	VibeAcpSettings.set_last_session("")
+	VibeAcpSettings.set_last_session_busy(false)
 	_update_send_state()
 	if client != null and client.is_open():
 		_append_line_role(TranscriptRoles.ROLE_SYS, "starting a new session…")
@@ -255,7 +256,7 @@ func _wire_client() -> void:
 		_append_line_role(TranscriptRoles.ROLE_SYS, "ACP initialized, agent: %s v%s" % [
 			str(client.server_info.get("agentInfo", {}).get("title", "vibe-acp")),
 			str(client.server_info.get("agentInfo", {}).get("version", "?"))])
-		client.load_or_new(VibeAcpSettings.get_last_session()))
+		_resume_stored_session())
 	client.auth_methods_available.connect(func(_methods: Array) -> void:
 		_append_line_role(TranscriptRoles.ROLE_SYS, "if prompts fail, sign in via CLI: vibe --setup"))
 	client.session_ready.connect(_on_session_ready)
@@ -263,7 +264,8 @@ func _wire_client() -> void:
 	client.session_load_failed.connect(func(sid: String, _error: Variant) -> void:
 		# the stored session is gone server-side; drop it so we don't retry it
 		if VibeAcpSettings.get_last_session() == sid:
-			VibeAcpSettings.set_last_session(""))
+			VibeAcpSettings.set_last_session("")
+			VibeAcpSettings.set_last_session_busy(false))
 	client.sessions_listed.connect(_on_sessions_listed)
 	client.prompt_finished.connect(_on_prompt_finished)
 	client.session_update.connect(_render_update)
@@ -281,6 +283,31 @@ func _wire_client() -> void:
 		client.dispatcher.register_request_handler(m, func(_params: Variant, respond: Callable) -> void:
 			respond.call(null, {"code": -32601,
 				"message": "Godot client provides no terminal; the agent should use its own shell tools."}))
+
+## Decide which session to open after (auto-)connect. Auto-resume of the
+## stored session is off by default (vibe_acp/auto_resume): quitting the editor
+## mid-turn used to make the agent silently pick up an abandoned task on the
+## next start. When auto-resume is enabled, a session that was left mid-turn
+## is still skipped. Either way the previous session stays available in the
+## Session dropdown for a manual resume.
+func _resume_stored_session() -> void:
+	_decide_resume(VibeAcpSettings.get_last_session(),
+		VibeAcpSettings.is_last_session_interrupted(),
+		VibeAcpSettings.is_auto_resume())
+
+## Pure-ish decision core, split out so tests can drive it with a fake client.
+func _decide_resume(stored: String, interrupted: bool, auto_resume: bool) -> void:
+	if client == null:
+		return
+	if VibeAcpSettings.should_auto_resume(stored, interrupted, auto_resume):
+		client.load_or_new(stored)
+		return
+	if not stored.is_empty():
+		var reason := "it was still working when the editor closed" if interrupted \
+			else "auto-resume is off (vibe_acp/auto_resume, default off)"
+		_append_line_role(TranscriptRoles.ROLE_SYS,
+			"starting a new session — %s. Pick session %s in the Session dropdown to resume it manually." % [reason, stored.substr(0, 8)])
+	client.new_session()
 
 # ---------------------------------------------------------------- handlers
 
@@ -330,6 +357,9 @@ func _on_prompt_finished(_sid: String, result: Variant, error: Variant) -> void:
 	_busy = false
 	_close_block()
 	_turn_label.text = "idle"
+	# the turn ended (finished, failed or cancelled) -> no longer interrupted
+	if _sid == VibeAcpSettings.get_last_session():
+		VibeAcpSettings.set_last_session_busy(false)
 	if error != null:
 		_append_line_role(TranscriptRoles.ROLE_ERROR, "prompt failed: " + str(error))
 	# a normal end_turn is not transcript noise; it only flips the state label
@@ -513,9 +543,12 @@ func _send_text(text: String) -> void:
 	_turn_label.text = "working…"
 	_update_send_state()
 	client.prompt(text)
-	# Only now does this session become the one to resume after a restart:
-	# sessions with no input are not persisted by vibe-acp.
+	# Only now does this session become the stored one: sessions with no input
+	# are not persisted by vibe-acp. The busy flag marks it as mid-turn until
+	# prompt_finished arrives; if the editor is quit in between, the flag
+	# survives the restart and the session counts as interrupted.
 	VibeAcpSettings.set_last_session(client.session_id)
+	VibeAcpSettings.set_last_session_busy(true)
 
 func _on_input_gui_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:

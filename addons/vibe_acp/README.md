@@ -26,6 +26,13 @@ browser auth.
 - **Session dropdown** — populated automatically (`session/list`); pick one to
   resume it (`session/load`). **List/refresh** re-queries. **New** starts a
   fresh session and clears the transcript.
+- **Startup session** — on editor start the dock opens a **new** session by
+  default (no auto-resume), so quitting the editor mid-turn can never make the
+  agent silently pick up an abandoned task on the next start. Resume a previous
+  session manually via the Session dropdown. Set `vibe_acp/auto_resume=true` to
+  auto-resume the last session instead — but even then, a session that was
+  still working when the editor closed (`vibe_acp/last_session_busy`) is
+  skipped and only resumable manually.
 - **Mode dropdown** — approval mode (`session/set_mode`: ask / accept-edits /
   smart-approve / auto-approve), persisted in `vibe_acp/approval_mode`.
 - **Compact** — sends `/compact` so the agent summarizes its context.
@@ -33,7 +40,8 @@ browser auth.
   `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
   the editor. Long lines wrap.
-- **Input** — Ctrl/Cmd+Enter sends; **Stop** sends `session/cancel`.
+- **Input** — Ctrl/Cmd+Enter sends; **Stop** sends `session/cancel` (a
+  notification per the ACP spec — no response is expected or awaited).
 - Tool-call approvals pop a dialog (`session/request_permission`); file writes
   via `fs/write_text_file` pop a confirmation. Both are cancelled automatically
   if the agent disconnects.
@@ -66,7 +74,9 @@ Data flow: `vibe_dock._process` → `AcpClient.pump()` → `AcpConnection.poll()
 |---|---|---|
 | `vibe_acp/executable` | auto-detect | path to the `vibe-acp` binary |
 | `vibe_acp/auto_connect` | `true` | connect on editor start |
-| `vibe_acp/last_session_id` | — | session to resume (written only after your first prompt) |
+| `vibe_acp/auto_resume` | `false` | auto-resume the last session on editor start (interrupted sessions are never auto-resumed) |
+| `vibe_acp/last_session_id` | — | last active session (written only after your first prompt) |
+| `vibe_acp/last_session_busy` | `false` | internal: last session was mid-turn when the editor/agent went away |
 | `vibe_acp/approval_mode` | — | approval mode applied on session start |
 
 ## Tests / verification
@@ -81,6 +91,10 @@ godot --headless --path . -s addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests/
 - **No history replay after resume**: `session/load` does not resend past
   `session/update`s, so the transcript starts empty after an editor restart.
   Full history lives in `~/.vibe/logs/session/…` (view with `vibe --resume`).
+- **Interrupted sessions are not auto-resumed**: if the editor is quit (or the
+  agent process dies) while a prompt is in flight, `vibe_acp/last_session_busy`
+  stays set and the next start opens a fresh session instead. The interrupted
+  session remains in the Session dropdown for a manual resume.
 - **Sessions with zero input are not persisted** by vibe-acp; that's why
   `last_session_id` is only stored after the first prompt is sent.
 - `terminal/*` requests are declined — the agent uses its own shell tools.
