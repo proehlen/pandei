@@ -22,6 +22,11 @@ static func role_for_update(update: Dictionary) -> String:
 			return ROLE_TOOL
 	return ROLE_SYS
 
+## tool_call/tool_call_update locations: [{path, line}, ...] (may be absent).
+static func locations_of(update: Dictionary) -> Array:
+	var l: Variant = update.get("locations", [])
+	return l if l is Array else []
+
 static func prefix_for_role(role: String) -> String:
 	match role:
 		ROLE_USER:

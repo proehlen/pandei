@@ -23,3 +23,9 @@ func test_prefixes_are_distinct_per_role() -> void:
 	assert_that(TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_USER)).is_equal("You: ")
 	assert_that(TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_AGENT)).is_equal("Vibe: ")
 	assert_that(TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_THOUGHT)).is_equal("thinking: ")
+
+func test_locations_of_extracts_tool_call_locations() -> void:
+	assert_that(TranscriptRoles.locations_of({"sessionUpdate": "tool_call"})).is_equal([])
+	var u := {"sessionUpdate": "tool_call", "locations": [{"path": "/home/peter/pandei/src/x.gd", "line": 12}]}
+	assert_that(TranscriptRoles.locations_of(u)).is_equal([{"path": "/home/peter/pandei/src/x.gd", "line": 12}])
+	assert_that(TranscriptRoles.locations_of({"locations": "bogus"})).is_equal([])

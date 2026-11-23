@@ -24,6 +24,7 @@ var _input: TextEdit
 var _send_btn: Button
 var _was_connected := false
 var _busy := false
+var _open_dialogs: Array = []  # pending permission/fs dialogs, cancelled on disconnect
 
 # streaming block state: one open block per messageId, closed on role change
 var _block_open := false
@@ -87,6 +88,17 @@ func _build_ui() -> void:
 	_disconnect_btn.visible = false
 	_disconnect_btn.pressed.connect(disconnect_from_agent)
 	header.add_child(_disconnect_btn)
+
+	var new_btn := Button.new()
+	new_btn.text = "New"
+	new_btn.tooltip_text = "Start a new session (fresh context)"
+	new_btn.pressed.connect(_on_new_session)
+	header.add_child(new_btn)
+	var compact_btn := Button.new()
+	compact_btn.text = "Compact"
+	compact_btn.tooltip_text = "Ask the agent to compact the conversation (/compact)"
+	compact_btn.pressed.connect(func() -> void: _send_text("/compact"))
+	header.add_child(compact_btn)
 	header.add_child(VSeparator.new())
 
 	var s_lbl := Label.new()
@@ -146,6 +158,7 @@ func _build_ui() -> void:
 	_transcript.scroll_following = true
 	_transcript.selection_enabled = true
 	_transcript.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_transcript.meta_clicked.connect(_on_transcript_meta_clicked)
 	add_child(_transcript)
 
 	var input_row := HBoxContainer.new()
@@ -191,9 +204,38 @@ func connect_to_agent() -> void:
 func disconnect_from_agent() -> void:
 	if client != null:
 		client.connection.close()
-		_append_line_role(TranscriptRoles.ROLE_SYS, "stopped agent process")
 		client = null
+	_handle_disconnect("stopped agent process")
+
+## Central teardown for any disconnect (button, process death): answer pending
+## server requests, reset turn state, refresh the header. Without this, a dead
+## agent left _busy stuck and permission dialogs hanging forever.
+func _handle_disconnect(message: String) -> void:
+	for dlg in _open_dialogs:
+		if is_instance_valid(dlg):
+			dlg.cancel()  # AcceptDialog.cancel() -> canceled -> our handlers respond + free
+	_open_dialogs.clear()
+	_busy = false
+	_close_block()
+	_turn_label.text = ""
+	if message != "":
+		_append_line_role(TranscriptRoles.ROLE_SYS, message)
 	_update_connection_ui(false)
+
+func _on_new_session() -> void:
+	_transcript.clear()
+	_close_block()
+	_busy = false
+	_turn_label.text = ""
+	# Only re-stored after the first prompt in the new session (see _send_text):
+	# vibe-acp does not persist sessions that never received input.
+	VibeAcpSettings.set_last_session("")
+	_update_send_state()
+	if client != null and client.is_open():
+		_append_line_role(TranscriptRoles.ROLE_SYS, "starting a new session…")
+		client.new_session()
+	else:
+		_append_line_role(TranscriptRoles.ROLE_SYS, "not connected — press Connect first")
 
 func _wire_client() -> void:
 	client.initialized.connect(func(_result: Dictionary) -> void:
@@ -287,8 +329,10 @@ func _on_permission_request(params: Variant, respond: Callable) -> void:
 	_append_line_role(TranscriptRoles.ROLE_SYS, "permission requested: " + str(tool_call.get("title", "run a tool")))
 	var dlg := VibePermissionDialog.new()
 	add_child(dlg)
+	_open_dialogs.append(dlg)
 	dlg.setup_dialog(tool_call, options)
 	dlg.resolved.connect(func(option_id: String, cancelled: bool) -> void:
+		_open_dialogs.erase(dlg)
 		if cancelled:
 			respond.call({"outcome": {"outcome": "cancelled"}})
 		else:
@@ -303,7 +347,9 @@ func _on_fs_write(params: Variant, respond: Callable) -> void:
 	dlg.title = "Vibe wants to write a file"
 	dlg.dialog_text = "Allow vibe-acp to write:\n%s\n\n(%d bytes)" % [path, str(p.get("content", "")).length()]
 	add_child(dlg)
+	_open_dialogs.append(dlg)
 	dlg.confirmed.connect(func() -> void:
+		_open_dialogs.erase(dlg)
 		var r := fs.handle_write(p)
 		if r.has("error"):
 			respond.call(null, r["error"])
@@ -312,6 +358,7 @@ func _on_fs_write(params: Variant, respond: Callable) -> void:
 		_append_line_role(TranscriptRoles.ROLE_SYS, "wrote " + path)
 		dlg.queue_free())
 	dlg.canceled.connect(func() -> void:
+		_open_dialogs.erase(dlg)
 		respond.call(null, {"code": -32001, "message": "file write denied in the editor"})
 		dlg.queue_free())
 	dlg.popup_centered()
@@ -326,10 +373,10 @@ func _render_update(_sid: String, update: Dictionary) -> void:
 		TranscriptRoles.ROLE_USER:
 			_append_line_role(TranscriptRoles.ROLE_USER, _content_text(update))
 		TranscriptRoles.ROLE_TOOL:
-			if str(update.get("sessionUpdate", "")) == "tool_call":
-				_append_line_role(TranscriptRoles.ROLE_TOOL, "%s — %s" % [str(update.get("title", "?")), str(update.get("status", "pending"))])
-			else:
-				_append_line_role(TranscriptRoles.ROLE_TOOL, "  %s: %s" % [str(update.get("title", str(update.get("toolCallId", "")))), str(update.get("status", ""))])
+			var is_call := str(update.get("sessionUpdate", "")) == "tool_call"
+			var title := str(update.get("title", str(update.get("toolCallId", "?"))))
+			var status := str(update.get("status", "pending" if is_call else ""))
+			_append_tool_line(title, status, TranscriptRoles.locations_of(update))
 		_:
 			match str(update.get("sessionUpdate", "")):
 				"usage_update":
@@ -355,6 +402,46 @@ func _stream_chunk(role: String, update: Dictionary) -> void:
 func _content_text(update: Dictionary) -> String:
 	var c: Variant = update.get("content", {})
 	return str(c.get("text", "")) if c is Dictionary else ""
+
+## Tool line with clickable file:line links (push_meta works with bbcode off).
+func _append_tool_line(title: String, status: String, locations: Array) -> void:
+	_close_block()
+	_open_block(TranscriptRoles.ROLE_TOOL, TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_TOOL))
+	_transcript.append_text("%s — %s" % [title, status])
+	for loc in locations:
+		if loc is Dictionary:
+			var p := str(loc.get("path", ""))
+			var line := int(loc.get("line", 0))
+			if p != "":
+				_transcript.append_text("  ")
+				_transcript.push_meta({"path": p, "line": line})
+				_transcript.push_color(COLOR_USER)
+				_transcript.push_underline()
+				_transcript.append_text(_display_path(p) + (":%d" % line if line > 0 else ""))
+				_transcript.pop()  # underline
+				_transcript.pop()  # color
+				_transcript.pop()  # meta
+	_close_block()
+
+func _display_path(p: String) -> String:
+	return p if p.begins_with("res://") else ProjectSettings.localize_path(p)
+
+func _on_transcript_meta_clicked(meta: Variant) -> void:
+	if not (meta is Dictionary):
+		return
+	var p := str(meta.get("path", ""))
+	var line := int(meta.get("line", 0))
+	if p.is_empty():
+		return
+	var res := _display_path(p)
+	if res.ends_with(".gd") and ResourceLoader.exists(res):
+		var s := load(res) as Script
+		if s != null:
+			EditorInterface.edit_script(s, maxi(line, 1))
+	elif res.ends_with(".tscn") and ResourceLoader.exists(res):
+		EditorInterface.open_scene_from_path(res)
+	elif ResourceLoader.exists(res):
+		EditorInterface.edit_resource(load(res))
 
 func _role_color(role: String) -> Color:
 	match role:
@@ -401,9 +488,13 @@ func _append_line_role(role: String, s: String) -> void:
 # ---------------------------------------------------------------- input
 
 func _on_send() -> void:
+	_send_text(_input.text)
+
+func _send_text(text: String) -> void:
 	if client == null or not client.is_open() or _busy:
 		return
-	var text := _input.text
+	if text.strip_edges().is_empty():
+		return
 	_input.text = ""
 	_busy = true
 	_turn_label.text = "working…"
@@ -437,7 +528,8 @@ func _process(_delta: float) -> void:
 		var open := client.is_open()
 		if open != _was_connected:
 			_was_connected = open
-			_update_connection_ui(open)
 			if not open:
-				_append_line_role(TranscriptRoles.ROLE_SYS, "agent process ended (exit %d)" % client.connection.exit_code())
+				_handle_disconnect("agent process ended (exit %d)" % client.connection.exit_code())
 				client = null
+			else:
+				_update_connection_ui(true)
