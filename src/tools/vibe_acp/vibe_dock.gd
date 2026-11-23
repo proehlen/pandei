@@ -51,6 +51,7 @@ var _was_connected := false
 var _busy := false
 var _cancelling := false  # stop requested; busy until prompt_finished arrives
 var _open_dialogs: Array = []  # pending permission/fs dialogs, cancelled on disconnect
+var _tool_calls_by_id: Dictionary = {}  # toolCallId -> tool_call/update seen, to resolve permission-request hashes
 
 # streaming block state: one open block per messageId, closed on role change
 var _block_open := false
@@ -341,7 +342,9 @@ func disconnect_from_agent() -> void:
 func _handle_disconnect(message: String) -> void:
 	for dlg in _open_dialogs:
 		if is_instance_valid(dlg):
-			dlg.cancel()  # AcceptDialog.cancel() -> canceled -> our handlers respond + free
+			# AcceptDialog has no cancel() method in Godot 4; emitting the signal
+			# runs the same handlers (respond + free) as the dialog's Cancel button
+			dlg.canceled.emit()
 	_open_dialogs.clear()
 	_busy = false
 	_cancelling = false
@@ -354,6 +357,7 @@ func _handle_disconnect(message: String) -> void:
 func _on_new_session() -> void:
 	_transcript.clear()
 	_close_block()
+	_tool_calls_by_id.clear()
 	_busy = false
 	_cancelling = false
 	_turn_label.text = ""
@@ -490,11 +494,18 @@ func _on_permission_request(params: Variant, respond: Callable) -> void:
 	var p: Dictionary = params if params is Dictionary else {}
 	var tool_call: Dictionary = p.get("toolCall", {}) if p.get("toolCall") is Dictionary else {}
 	var options: Array = p.get("options", []) if p.get("options") is Array else []
-	_append_line_role(TranscriptRoles.ROLE_SYS, "permission requested: " + str(tool_call.get("title", "run a tool")))
+	# the request often carries only a toolCallId hash; resolve it against the
+	# tool_call updates seen earlier so the transcript line and the dialog name
+	# the actual tool instead of the hash
+	var known: Variant = _tool_calls_by_id.get(str(tool_call.get("toolCallId", "")), {})
+	var label := str(tool_call.get("title", ""))
+	if label == "" and known is Dictionary:
+		label = str((known as Dictionary).get("title", "run a tool"))
+	_append_line_role(TranscriptRoles.ROLE_SYS, "permission requested: " + label)
 	var dlg := VibePermissionDialog.new()
 	add_child(dlg)
 	_open_dialogs.append(dlg)
-	dlg.setup_dialog(tool_call, options)
+	dlg.setup_dialog(tool_call, options, _tool_calls_by_id)
 	dlg.resolved.connect(func(option_id: String, cancelled: bool) -> void:
 		_open_dialogs.erase(dlg)
 		if cancelled:
@@ -502,7 +513,7 @@ func _on_permission_request(params: Variant, respond: Callable) -> void:
 		else:
 			respond.call({"outcome": {"outcome": "selected", "optionId": option_id}})
 		dlg.queue_free())
-	dlg.popup_centered()
+	dlg.popup_on_screen()
 
 func _on_fs_write(params: Variant, respond: Callable) -> void:
 	var p: Dictionary = params if params is Dictionary else {}
@@ -537,6 +548,14 @@ func _render_update(_sid: String, update: Dictionary) -> void:
 		TranscriptRoles.ROLE_USER:
 			_append_line_role(TranscriptRoles.ROLE_USER, _content_text(update))
 		TranscriptRoles.ROLE_TOOL:
+			# remember tool_call updates by id: session/request_permission often
+			# carries only the toolCallId hash, and this map turns that hash back
+			# into title/kind/rawInput for the permission dialog
+			var tcid := str(update.get("toolCallId", ""))
+			if tcid != "":
+				_tool_calls_by_id[tcid] = update
+				while _tool_calls_by_id.size() > 200:
+					_tool_calls_by_id.erase(_tool_calls_by_id.keys()[0])  # oldest first
 			var is_call := str(update.get("sessionUpdate", "")) == "tool_call"
 			var title := str(update.get("title", str(update.get("toolCallId", "?"))))
 			var status := str(update.get("status", "pending" if is_call else ""))
