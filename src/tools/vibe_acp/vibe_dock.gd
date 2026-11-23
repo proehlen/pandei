@@ -205,6 +205,10 @@ func _wire_client() -> void:
 		_append_line_role(TranscriptRoles.ROLE_SYS, "if prompts fail, sign in via CLI: vibe --setup"))
 	client.session_ready.connect(_on_session_ready)
 	client.session_error.connect(func(m: String) -> void: _append_line_role(TranscriptRoles.ROLE_ERROR, m))
+	client.session_load_failed.connect(func(sid: String, _error: Variant) -> void:
+		# the stored session is gone server-side; drop it so we don't retry it
+		if VibeAcpSettings.get_last_session() == sid:
+			VibeAcpSettings.set_last_session(""))
 	client.sessions_listed.connect(_on_sessions_listed)
 	client.prompt_finished.connect(_on_prompt_finished)
 	client.session_update.connect(_render_update)
@@ -226,7 +230,9 @@ func _wire_client() -> void:
 # ---------------------------------------------------------------- handlers
 
 func _on_session_ready(sid: String, info: Dictionary) -> void:
-	VibeAcpSettings.set_last_session(sid)
+	# NOTE: the stored "last session" is only overwritten once the user sends a
+	# prompt (see _on_send). vibe-acp does not persist sessions that never got
+	# any input, so storing them would make every restart log "Session not found".
 	_status_label.text = "session " + sid.substr(0, 8)
 	_append_line_role(TranscriptRoles.ROLE_SYS, "session ready: " + sid)
 	_populate_modes(info.get("modes", {}))
@@ -372,7 +378,7 @@ func _open_block(role: String, prefix: String) -> void:
 	_transcript.pop()  # bold off; color stays active for the body text
 	_block_pushes = 1
 	if role == TranscriptRoles.ROLE_THOUGHT:
-		_transcript.push_italic()
+		_transcript.push_italics()  # Godot 4 name; push_italic() does not exist
 		_block_pushes += 1
 	_block_open = true
 
@@ -403,6 +409,9 @@ func _on_send() -> void:
 	_turn_label.text = "working…"
 	_update_send_state()
 	client.prompt(text)
+	# Only now does this session become the one to resume after a restart:
+	# sessions with no input are not persisted by vibe-acp.
+	VibeAcpSettings.set_last_session(client.session_id)
 
 func _on_input_gui_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:

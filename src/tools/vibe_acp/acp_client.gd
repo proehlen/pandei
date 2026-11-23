@@ -9,6 +9,7 @@ signal initialized(result: Dictionary)
 signal auth_methods_available(methods: Array)
 signal session_ready(session_id: String, info: Dictionary)
 signal session_error(message: String)
+signal session_load_failed(session_id: String, error: Variant)
 signal sessions_listed(sessions: Array)
 signal prompt_finished(session_id: String, result: Variant, error: Variant)
 signal session_update(session_id: String, update: Dictionary)
@@ -73,7 +74,8 @@ func load_or_new(p_session_id: String) -> void:
 				session_id = str(result.get("sessionId", p_session_id))
 				session_ready.emit(session_id, result)
 			else:
-				log_line.emit("Could not resume session %s (%s); starting a new one." % [p_session_id, str(error)])
+				session_load_failed.emit(p_session_id, error)
+				log_line.emit("Could not resume session %s (%s); starting a new one." % [p_session_id, _fmt_error(error)])
 				new_session()
 	)
 
@@ -150,3 +152,12 @@ func _send_request(method: String, params: Dictionary, on_response: Callable) ->
 func _on_session_update(params: Variant) -> void:
 	if params is Dictionary:
 		session_update.emit(str(params.get("sessionId", "")), params.get("update", {}))
+
+## Compact one-line rendering of a JSON-RPC error (Dictionary) or any value.
+static func _fmt_error(error: Variant) -> String:
+	if error is Dictionary:
+		var code: Variant = error.get("code", "")
+		var message: Variant = error.get("message", "")
+		if str(message) != "":
+			return "%s (%s)" % [message, code] if str(code) != "" else str(message)
+	return str(error)
