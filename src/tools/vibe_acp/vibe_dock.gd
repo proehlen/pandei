@@ -13,7 +13,14 @@ extends VBoxContainer
 ## HFlowContainer (min width = widest single control, not the row sum) and
 ## no header child carries a large fixed minimum width, so this dock never
 ## blocks the Inspector from being resized; the header simply wraps to more
-## rows as the panel narrows.
+## rows as the panel narrows. The same applies to the status bar below the
+## input row, which is also an HFlowContainer for that reason.
+##
+## The header carries only interactive controls (buttons, dropdowns); all
+## passive status text lives in the slim status bar beneath the prompt input
+## (smaller font + slightly darkened background, so a short, distinct row):
+## the git branch, connection/session state, turn state and token usage,
+## separated by vertical bars.
 
 var client: AcpClient = null
 var fs: AcpFsHandler
@@ -25,9 +32,18 @@ var _title_label: Label
 var _status_label: Label
 var _turn_label: Label
 var _usage_label: Label
+var _branch_label: Label
+var _branch_sep: VSeparator  # = _status_seps[0]; kept as a named member for readability/tests
+var _status_bar_bg: PanelContainer
+var _status_bar: HFlowContainer
+var _status_seps: Array[VSeparator] = []  # sep i sits between _status_labels_ordered[i] and [i+1]
+var _status_labels_ordered: Array[Label] = []  # branch, status, turn, usage
+var _branch_timer: Timer
+var _status_font_size := 0
 var _session_option: OptionButton
 var _mode_option: OptionButton
 var _transcript: RichTextLabel
+var _input_row: HBoxContainer
 var _input: TextEdit
 var _send_btn: Button
 var _stop_btn: Button
@@ -54,6 +70,14 @@ func _ready() -> void:
 	fs = AcpFsHandler.new(_project_root)
 	custom_minimum_size = Vector2(0, 170)  # keep the panel usable when small
 	_build_ui()
+	# poll the branch name (a cheap .git/HEAD file read) so switching branches
+	# in a terminal shows up here without an editor restart
+	_branch_timer = Timer.new()
+	_branch_timer.wait_time = 1.0
+	_branch_timer.timeout.connect(_refresh_branch)
+	add_child(_branch_timer)
+	_refresh_branch()
+	_branch_timer.start()
 	_append_line_role(TranscriptRoles.ROLE_SYS, "Dock ready. " +
 		("Connecting automatically…" if VibeAcpSettings.is_auto_connect() else "Press Connect to start the agent."))
 	if VibeAcpSettings.is_auto_connect():
@@ -153,19 +177,6 @@ func _build_ui() -> void:
 			VibeAcpSettings.set_mode(mode_id)
 			client.set_mode(mode_id))
 	header.add_child(_mode_option)
-	header.add_child(VSeparator.new())
-
-	_status_label = Label.new()
-	_status_label.text = "disconnected"
-	_status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_status_label.clip_text = true
-	header.add_child(_status_label)
-	_turn_label = Label.new()
-	_turn_label.text = ""
-	header.add_child(_turn_label)
-	_usage_label = Label.new()
-	_usage_label.text = ""
-	header.add_child(_usage_label)
 
 	_transcript = RichTextLabel.new()
 	_transcript.bbcode_enabled = false  # agent text may contain '['; keep it literal
@@ -176,16 +187,16 @@ func _build_ui() -> void:
 	_transcript.meta_clicked.connect(_on_transcript_meta_clicked)
 	add_child(_transcript)
 
-	var input_row := HBoxContainer.new()
-	add_child(input_row)
+	_input_row = HBoxContainer.new()
+	add_child(_input_row)
 	_input = TextEdit.new()
 	_input.custom_minimum_size = Vector2(0, 64)
 	_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_input.placeholder_text = "Ask Vibe… (Ctrl+Enter to send)"
 	_input.gui_input.connect(_on_input_gui_input)
-	input_row.add_child(_input)
+	_input_row.add_child(_input)
 	var btns := VBoxContainer.new()
-	input_row.add_child(btns)
+	_input_row.add_child(btns)
 	_send_btn = Button.new()
 	_send_btn.text = "Send"
 	_send_btn.pressed.connect(_on_send)
@@ -195,6 +206,107 @@ func _build_ui() -> void:
 	_stop_btn.tooltip_text = "Cancel the running turn (session/cancel). Enabled only while a turn is active; stays busy until the agent confirms the turn ended."
 	_stop_btn.pressed.connect(_on_stop)
 	btns.add_child(_stop_btn)
+
+	_build_status_bar()
+
+## Slim status row beneath the prompt input: git branch + connection/session,
+## turn and token-usage labels separated by vertical bars. A smaller font
+## keeps the row short, a translucent dark PanelContainer background makes it
+## read as its own strip instead of bleeding into the editor's bottom panel,
+## and the inner HFlowContainer (not HBox) keeps the dock's minimum width at
+## the widest single label so the Inspector splitter can still resize freely.
+func _build_status_bar() -> void:
+	_status_font_size = maxi(9, get_theme_default_font_size() - 3)
+	_status_bar_bg = PanelContainer.new()
+	_status_bar_bg.add_theme_stylebox_override("panel", _make_status_bar_stylebox())
+	add_child(_status_bar_bg)
+	_status_bar = HFlowContainer.new()
+	_status_bar_bg.add_child(_status_bar)
+	_branch_label = _make_status_label(180)
+	_branch_label.tooltip_text = "Current git branch of this project (res://)"
+	_status_bar.add_child(_branch_label)
+	_branch_sep = _add_status_sep()
+	_status_label = _make_status_label(120)
+	_status_label.text = "disconnected"
+	_status_bar.add_child(_status_label)
+	var status_sep := _add_status_sep()
+	_turn_label = _make_status_label(70)
+	_status_bar.add_child(_turn_label)
+	var turn_sep := _add_status_sep()
+	_usage_label = _make_status_label(90)
+	_status_bar.add_child(_usage_label)
+	_status_labels_ordered = [_branch_label, _status_label, _turn_label, _usage_label]
+	_status_seps = [_branch_sep, status_sep, turn_sep]
+
+func _add_status_sep() -> VSeparator:
+	var sep := VSeparator.new()
+	_status_bar.add_child(sep)
+	return sep
+
+## Background of the status strip: a translucent black overlay, so the row is
+## always one step darker than whatever the editor's bottom panel draws behind
+## it — in dark and light editor themes alike. (Deriving a fixed color from a
+## theme item does not work here: the editor theme defines no PanelContainer
+## panel stylebox, so a themed lookup falls back to a light gray that renders
+## LIGHTER than the dark panel.)
+func _make_status_bar_stylebox() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0.25)
+	sb.content_margin_left = 6.0
+	sb.content_margin_right = 6.0
+	sb.content_margin_top = 1.0
+	sb.content_margin_bottom = 1.0
+	sb.corner_radius_top_left = 2
+	sb.corner_radius_top_right = 2
+	sb.corner_radius_bottom_left = 2
+	sb.corner_radius_bottom_right = 2
+	return sb
+
+## Sync the status row with the label texts: labels without text are hidden (a
+## flow container then gives them no space), and separator i shows only when
+## its left section has text and SOME later section has text — so exactly one
+## bar separates consecutive visible sections, never a dangling or doubled bar
+## (e.g. with the turn section empty, session and usage still get one bar
+## between them). Called every frame from _process; a few string checks.
+func _sync_status_bar() -> void:
+	for l in _status_labels_ordered:
+		l.visible = not l.text.is_empty()
+	for i in _status_seps.size():
+		var left := _status_labels_ordered[i]
+		var right_has_text := false
+		for j in range(i + 1, _status_labels_ordered.size()):
+			if not _status_labels_ordered[j].text.is_empty():
+				right_has_text = true
+				break
+		_status_seps[i].visible = left.visible and right_has_text
+
+## One status-bar label. The custom_minimum_size.x floor + EXPAND_FILL are
+## required, not cosmetic: a flow container lays children out at their
+## minimum width, and a Label with text_overrun_behavior set collapses its
+## minimum width to ~0, so without the floor the text would be squeezed to
+## ~1px and never render (only the separators would be visible). The floor
+## also bounds the row's minimum width (flow min = widest child), and
+## EXPAND_FILL lets the labels use leftover width when the panel is wide.
+func _make_status_label(min_width: float) -> Label:
+	var l := Label.new()
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	l.clip_text = true
+	l.custom_minimum_size.x = min_width
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.add_theme_font_size_override("font_size", _status_font_size)
+	if is_inside_tree():
+		# dim the status text against the transcript; resolved through the
+		# editor theme so it works in light and dark editor themes alike
+		var c := get_theme_color("font_color", "Label")
+		l.add_theme_color_override("font_color", Color(c.r, c.g, c.b, c.a * 0.65))
+	return l
+
+## Re-read the project's git branch into the status bar. Cheap file read, so
+## the timer in _ready can call this every second.
+func _refresh_branch() -> void:
+	var branch := GitBranch.current_branch(_project_root)
+	_branch_label.text = "git: " + branch if branch != "" else ""
+	_sync_status_bar()
 
 # ---------------------------------------------------------------- connection
 
@@ -616,3 +728,5 @@ func _process(_delta: float) -> void:
 	# cheap safety net: keep Send/Stop in sync with the predicates every frame
 	# so no state change (e.g. session_id arriving) can leave them stale
 	_update_send_state()
+	# likewise keep the status-bar labels/separators in sync with their texts
+	_sync_status_bar()
