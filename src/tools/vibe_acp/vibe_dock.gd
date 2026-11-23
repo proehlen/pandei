@@ -17,10 +17,10 @@ extends VBoxContainer
 ## input row, which is also an HFlowContainer for that reason.
 ##
 ## The header carries only interactive controls (buttons, dropdowns); all
-## passive status text lives in the slim status bar beneath the prompt input
-## (smaller font + slightly darkened background, so a short, distinct row):
-## the git branch, connection/session state, turn state and token usage,
-## separated by vertical bars.
+## status info lives in the slim status bar beneath the prompt input (smaller
+## font + slightly darkened background, so a short, distinct row): a compact
+## git branch dropdown (pick another local branch to `git checkout` it),
+## connection/session state, turn state and token usage, separated by bars.
 
 var client: AcpClient = null
 var fs: AcpFsHandler
@@ -32,12 +32,14 @@ var _title_label: Label
 var _status_label: Label
 var _turn_label: Label
 var _usage_label: Label
-var _branch_label: Label
+var _branch_option: OptionButton
 var _branch_sep: VSeparator  # = _status_seps[0]; kept as a named member for readability/tests
 var _status_bar_bg: PanelContainer
 var _status_bar: HFlowContainer
-var _status_seps: Array[VSeparator] = []  # sep i sits between _status_labels_ordered[i] and [i+1]
-var _status_labels_ordered: Array[Label] = []  # branch, status, turn, usage
+var _status_seps: Array[VSeparator] = []  # sep i sits between _status_sections[i] and [i+1]
+var _status_sections: Array[Control] = []  # branch dropdown, status, turn, usage
+var _refreshing_branch := false  # re-entrancy guard: programmatic select() must not trigger a switch
+var _git_runner: Callable = Callable()  # test hook for GitBranch.switch_branch; empty = real git
 var _branch_timer: Timer
 var _status_font_size := 0
 var _session_option: OptionButton
@@ -71,8 +73,8 @@ func _ready() -> void:
 	fs = AcpFsHandler.new(_project_root)
 	custom_minimum_size = Vector2(0, 170)  # keep the panel usable when small
 	_build_ui()
-	# poll the branch name (a cheap .git/HEAD file read) so switching branches
-	# in a terminal shows up here without an editor restart
+	# poll the branch state (cheap .git file reads) so switching branches in a
+	# terminal shows up here — and in the branch dropdown — without a restart
 	_branch_timer = Timer.new()
 	_branch_timer.wait_time = 1.0
 	_branch_timer.timeout.connect(_refresh_branch)
@@ -210,12 +212,13 @@ func _build_ui() -> void:
 
 	_build_status_bar()
 
-## Slim status row beneath the prompt input: git branch + connection/session,
-## turn and token-usage labels separated by vertical bars. A smaller font
-## keeps the row short, a translucent dark PanelContainer background makes it
-## read as its own strip instead of bleeding into the editor's bottom panel,
-## and the inner HFlowContainer (not HBox) keeps the dock's minimum width at
-## the widest single label so the Inspector splitter can still resize freely.
+## Slim status row beneath the prompt input: git branch dropdown +
+## connection/session, turn and token-usage labels separated by vertical bars.
+## A smaller font keeps the row short, a translucent dark PanelContainer
+## background makes it read as its own strip instead of bleeding into the
+## editor's bottom panel, and the inner HFlowContainer (not HBox) keeps the
+## dock's minimum width at the widest single section so the Inspector
+## splitter can still resize freely.
 func _build_status_bar() -> void:
 	_status_font_size = maxi(9, get_theme_default_font_size() - 3)
 	_status_bar_bg = PanelContainer.new()
@@ -223,9 +226,9 @@ func _build_status_bar() -> void:
 	add_child(_status_bar_bg)
 	_status_bar = HFlowContainer.new()
 	_status_bar_bg.add_child(_status_bar)
-	_branch_label = _make_status_label(180)
-	_branch_label.tooltip_text = "Current git branch of this project (res://)"
-	_status_bar.add_child(_branch_label)
+	_branch_option = _make_branch_option()
+	_status_bar.add_child(_branch_option)
+	_style_branch_option()  # theme lookups need the control to be in the tree
 	_branch_sep = _add_status_sep()
 	_status_label = _make_status_label(120)
 	_status_label.text = "disconnected"
@@ -236,7 +239,7 @@ func _build_status_bar() -> void:
 	var turn_sep := _add_status_sep()
 	_usage_label = _make_status_label(90)
 	_status_bar.add_child(_usage_label)
-	_status_labels_ordered = [_branch_label, _status_label, _turn_label, _usage_label]
+	_status_sections = [_branch_option, _status_label, _turn_label, _usage_label]
 	_status_seps = [_branch_sep, status_sep, turn_sep]
 
 func _add_status_sep() -> VSeparator:
@@ -263,23 +266,32 @@ func _make_status_bar_stylebox() -> StyleBoxFlat:
 	sb.corner_radius_bottom_right = 2
 	return sb
 
-## Sync the status row with the label texts: labels without text are hidden (a
+## Whether a status section currently has anything to show: labels need text,
+## the branch dropdown needs at least one item (no repo -> no items -> hidden).
+func _section_has_content(c: Control) -> bool:
+	if c is OptionButton:
+		return (c as OptionButton).item_count > 0
+	if c is Label:
+		return not (c as Label).text.is_empty()
+	return c.visible
+
+## Sync the status row with the section contents: empty sections are hidden (a
 ## flow container then gives them no space), and separator i shows only when
-## its left section has text and SOME later section has text — so exactly one
-## bar separates consecutive visible sections, never a dangling or doubled bar
-## (e.g. with the turn section empty, session and usage still get one bar
+## its left section has content and SOME later section has content — so exactly
+## one bar separates consecutive visible sections, never a dangling or doubled
+## bar (e.g. with the turn section empty, session and usage still get one bar
 ## between them). Called every frame from _process; a few string checks.
 func _sync_status_bar() -> void:
-	for l in _status_labels_ordered:
-		l.visible = not l.text.is_empty()
+	for s in _status_sections:
+		s.visible = _section_has_content(s)
 	for i in _status_seps.size():
-		var left := _status_labels_ordered[i]
-		var right_has_text := false
-		for j in range(i + 1, _status_labels_ordered.size()):
-			if not _status_labels_ordered[j].text.is_empty():
-				right_has_text = true
+		var left := _status_sections[i]
+		var right_has_content := false
+		for j in range(i + 1, _status_sections.size()):
+			if _section_has_content(_status_sections[j]):
+				right_has_content = true
 				break
-		_status_seps[i].visible = left.visible and right_has_text
+		_status_seps[i].visible = left.visible and right_has_content
 
 ## One status-bar label. The custom_minimum_size.x floor + EXPAND_FILL are
 ## required, not cosmetic: a flow container lays children out at their
@@ -302,12 +314,91 @@ func _make_status_label(min_width: float) -> Label:
 		l.add_theme_color_override("font_color", Color(c.r, c.g, c.b, c.a * 0.65))
 	return l
 
-## Re-read the project's git branch into the status bar. Cheap file read, so
-## the timer in _ready can call this every second.
+## The branch section of the status bar: a compact OptionButton showing the
+## current branch, with all other local branches in the dropdown. Kept slim so
+## the status row does not grow taller than the plain labels next to it:
+## status-bar font size, fit_to_longest_item off + a narrow minimum width (so
+## long branch names ellipsize instead of inflating the dock's minimum width).
+func _make_branch_option() -> OptionButton:
+	var ob := OptionButton.new()
+	ob.custom_minimum_size.x = 90
+	ob.fit_to_longest_item = false
+	ob.clip_text = true
+	ob.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	ob.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ob.add_theme_font_size_override("font_size", _status_font_size)
+	ob.tooltip_text = "Current git branch of this project (res://) — pick another local branch to switch to it (git checkout)"
+	ob.item_selected.connect(_on_branch_selected)
+	return ob
+
+## Theme-dependent tweaks for the branch dropdown. Must run after the control
+## is in the tree: on an out-of-tree control, theme lookups hit the fallback
+## theme instead of the editor theme. Dims the font like the status labels
+## (resolved through the editor theme, so light and dark themes both work) and
+## shaves the button styleboxes' vertical content margins to 0 — the default
+## Button stylebox padding alone would make the row taller than a Label row.
+func _style_branch_option() -> void:
+	if not is_inside_tree():
+		return
+	var c := get_theme_color("font_color", "Label")
+	_branch_option.add_theme_color_override("font_color", Color(c.r, c.g, c.b, c.a * 0.65))
+	for style in ["normal", "hover", "pressed", "disabled", "focus"]:
+		var base := _branch_option.get_theme_stylebox(style)
+		if base is StyleBoxFlat:
+			var sb := (base as StyleBoxFlat).duplicate()
+			sb.content_margin_top = 0.0
+			sb.content_margin_bottom = 0.0
+			_branch_option.add_theme_stylebox_override(style, sb)
+
+## Re-read the project's git state into the branch dropdown: all local branches
+## as items (sorted), the current branch selected; a detached HEAD (HEAD@sha)
+## or a HEAD ref whose branch no longer exists is shown as a selected but
+## disabled first item. Pure file reads, so the timer in _ready can call this
+## every second. The _refreshing_branch flag keeps the programmatic select()
+## from re-entering _on_branch_selected.
 func _refresh_branch() -> void:
-	var branch := GitBranch.current_branch(_project_root)
-	_branch_label.text = "git: " + branch if branch != "" else ""
+	_refreshing_branch = true
+	var current := GitBranch.current_branch(_project_root)
+	var branches := GitBranch.list_branches(_project_root)
+	_branch_option.clear()
+	var selected := -1
+	if current != "" and not branches.has(current):
+		# detached HEAD or deleted branch: nothing to switch to, show as-is
+		_branch_option.add_item(current)
+		_branch_option.set_item_metadata(0, "")
+		_branch_option.set_item_disabled(0, true)
+		selected = 0
+	for b in branches:
+		_branch_option.add_item(b)
+		_branch_option.set_item_metadata(_branch_option.item_count - 1, b)
+		if b == current:
+			selected = _branch_option.item_count - 1
+	if selected >= 0:
+		_branch_option.select(selected)
+	_refreshing_branch = false
 	_sync_status_bar()
+
+## User picked a branch in the dropdown: switch to it with `git checkout`.
+## On success the next _refresh_branch() (immediate + the 1s timer) selects
+## the new branch; on failure (e.g. uncommitted changes would be overwritten)
+## the error goes to the transcript and the selection snaps back to the branch
+## that is actually checked out. Picking the already-current entry (or the
+## disabled detached-HEAD entry, metadata "") is a no-op.
+func _on_branch_selected(index: int) -> void:
+	if _refreshing_branch or index < 0 or index >= _branch_option.item_count:
+		return
+	var branch := str(_branch_option.get_item_metadata(index))
+	var current := GitBranch.current_branch(_project_root)
+	if branch == "" or branch == current:
+		_refresh_branch()
+		return
+	var res := GitBranch.switch_branch(_project_root, branch, _git_runner)
+	if bool(res.get("ok", false)):
+		_append_line_role(TranscriptRoles.ROLE_SYS, "switched to git branch '%s'" % branch)
+	else:
+		_append_line_role(TranscriptRoles.ROLE_ERROR, "git checkout '%s' failed (exit %d): %s" % [
+			branch, int(res.get("exit_code", -1)), str(res.get("output", "")).strip_edges()])
+	_refresh_branch()
 
 # ---------------------------------------------------------------- connection
 
