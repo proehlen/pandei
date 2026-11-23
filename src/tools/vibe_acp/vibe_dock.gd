@@ -211,15 +211,14 @@ func _build_ui() -> void:
 
 ## Slim status row beneath the prompt input: git branch + connection/session,
 ## turn and token-usage labels separated by vertical bars. A smaller font
-## keeps the row short, a slightly darkened PanelContainer background makes it
+## keeps the row short, a translucent dark PanelContainer background makes it
 ## read as its own strip instead of bleeding into the editor's bottom panel,
 ## and the inner HFlowContainer (not HBox) keeps the dock's minimum width at
 ## the widest single label so the Inspector splitter can still resize freely.
 func _build_status_bar() -> void:
 	_status_font_size = maxi(9, get_theme_default_font_size() - 3)
 	_status_bar_bg = PanelContainer.new()
-	if is_inside_tree():
-		_status_bar_bg.add_theme_stylebox_override("panel", _make_status_bar_stylebox())
+	_status_bar_bg.add_theme_stylebox_override("panel", _make_status_bar_stylebox())
 	add_child(_status_bar_bg)
 	_status_bar = HFlowContainer.new()
 	_status_bar_bg.add_child(_status_bar)
@@ -244,16 +243,15 @@ func _add_status_sep() -> VSeparator:
 	_status_bar.add_child(sep)
 	return sep
 
-## Slightly darkened background for the status strip, derived from the themed
-## PanelContainer background so it stays a subtle "one step darker" shade in
-## both dark and light editor themes.
+## Background of the status strip: a translucent black overlay, so the row is
+## always one step darker than whatever the editor's bottom panel draws behind
+## it — in dark and light editor themes alike. (Deriving a fixed color from a
+## theme item does not work here: the editor theme defines no PanelContainer
+## panel stylebox, so a themed lookup falls back to a light gray that renders
+## LIGHTER than the dark panel.)
 func _make_status_bar_stylebox() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	var base := Color(0.5, 0.5, 0.5)
-	var panel_sb := get_theme_stylebox("panel", "PanelContainer")
-	if panel_sb is StyleBoxFlat and panel_sb.bg_color.a > 0.0:
-		base = (panel_sb as StyleBoxFlat).bg_color
-	sb.bg_color = base.darkened(0.15)
+	sb.bg_color = Color(0, 0, 0, 0.25)
 	sb.content_margin_left = 6.0
 	sb.content_margin_right = 6.0
 	sb.content_margin_top = 1.0
@@ -264,15 +262,23 @@ func _make_status_bar_stylebox() -> StyleBoxFlat:
 	sb.corner_radius_bottom_right = 2
 	return sb
 
-## A separator is shown only when the sections on BOTH sides render text, so
-## empty labels (e.g. no turn/usage yet, or no git branch) never leave a
-## dangling bar. Called every frame from _process (three string comparisons).
-func _sync_status_separators() -> void:
+## Sync the status row with the label texts: labels without text are hidden (a
+## flow container then gives them no space), and separator i shows only when
+## its left section has text and SOME later section has text — so exactly one
+## bar separates consecutive visible sections, never a dangling or doubled bar
+## (e.g. with the turn section empty, session and usage still get one bar
+## between them). Called every frame from _process; a few string checks.
+func _sync_status_bar() -> void:
+	for l in _status_labels_ordered:
+		l.visible = not l.text.is_empty()
 	for i in _status_seps.size():
 		var left := _status_labels_ordered[i]
-		var right := _status_labels_ordered[i + 1]
-		_status_seps[i].visible = left.visible and not left.text.is_empty() \
-			and right.visible and not right.text.is_empty()
+		var right_has_text := false
+		for j in range(i + 1, _status_labels_ordered.size()):
+			if not _status_labels_ordered[j].text.is_empty():
+				right_has_text = true
+				break
+		_status_seps[i].visible = left.visible and right_has_text
 
 ## One status-bar label. The custom_minimum_size.x floor + EXPAND_FILL are
 ## required, not cosmetic: a flow container lays children out at their
@@ -300,8 +306,7 @@ func _make_status_label(min_width: float) -> Label:
 func _refresh_branch() -> void:
 	var branch := GitBranch.current_branch(_project_root)
 	_branch_label.text = "git: " + branch if branch != "" else ""
-	_branch_label.visible = branch != ""
-	_sync_status_separators()
+	_sync_status_bar()
 
 # ---------------------------------------------------------------- connection
 
@@ -723,5 +728,5 @@ func _process(_delta: float) -> void:
 	# cheap safety net: keep Send/Stop in sync with the predicates every frame
 	# so no state change (e.g. session_id arriving) can leave them stale
 	_update_send_state()
-	# likewise keep the status-bar separators in sync with the label texts
-	_sync_status_separators()
+	# likewise keep the status-bar labels/separators in sync with their texts
+	_sync_status_bar()

@@ -64,23 +64,34 @@ func test_status_bar_is_last_child_below_the_input_row() -> void:
 	dock.free()
 
 
-func test_separators_between_all_sections_follow_neighbor_text() -> void:
+func test_separators_appear_between_all_visible_sections() -> void:
 	var dock := _make_dock()
 	dock._project_root = _mktemp_repo("ref: refs/heads/main\n")
 	dock._refresh_branch()
-	# four sections, three separators; turn/usage empty -> only sep after branch
+	# four sections, three separators; turn/usage empty -> hidden, one bar only
 	assert_that(dock._status_seps.size()).is_equal(3)
 	assert_that(dock._status_seps[0] == dock._branch_sep).is_true()
+	assert_that(dock._branch_label.visible).is_true()
+	assert_that(dock._status_label.visible).is_true()
+	assert_that(dock._turn_label.visible).is_false()   # empty labels take no space
+	assert_that(dock._usage_label.visible).is_false()
 	assert_that(dock._status_seps[0].visible).is_true()
 	assert_that(dock._status_seps[1].visible).is_false()
 	assert_that(dock._status_seps[2].visible).is_false()
-	# turn and usage appear -> all separators visible
+	# usage arrives while turn is still empty (the reported case): exactly one
+	# bar between session and usage — not zero, not a doubled bar
+	dock._usage_label.text = "0/400000 tok"
+	dock._sync_status_bar()
+	assert_that(dock._usage_label.visible).is_true()
+	assert_that(dock._status_seps[0].visible).is_true()
+	assert_that(dock._status_seps[1].visible).is_true()
+	assert_that(dock._status_seps[2].visible).is_false()  # turn still empty
+	# turn appears too -> all three bars
 	dock._turn_label.text = "working…"
-	dock._usage_label.text = "12/100 tok"
-	dock._sync_status_separators()
+	dock._sync_status_bar()
 	for sep in dock._status_seps:
 		assert_that(sep.visible).is_true()
-	# no git repo -> branch label and its separator hidden, the rest stay
+	# no git repo -> branch section and its bar hidden together, the rest stay
 	dock._project_root = "/nonexistent/path/xyz"
 	dock._refresh_branch()
 	assert_that(dock._branch_label.visible).is_false()
@@ -90,18 +101,15 @@ func test_separators_between_all_sections_follow_neighbor_text() -> void:
 	dock.free()
 
 
-func test_status_bar_background_is_a_darker_panel_stylebox_in_tree() -> void:
-	var dock := VibeAcpDock.new()
-	add_child(dock)
-	await get_tree().process_frame
-	await get_tree().process_frame
+func test_status_bar_background_is_a_darker_translucent_overlay() -> void:
+	var dock := _make_dock()
 	var sb := dock._status_bar_bg.get_theme_stylebox("panel")
 	assert_that(sb is StyleBoxFlat).is_true()
-	# darker (lower brightness) than the plain themed PanelContainer background
-	var panel_bg := dock.get_theme_stylebox("panel", "PanelContainer")
-	if panel_bg is StyleBoxFlat and panel_bg.bg_color.a > 0.0:
-		assert_that((sb as StyleBoxFlat).bg_color.v).is_less(panel_bg.bg_color.v)
-	dock.queue_free()
+	var c := (sb as StyleBoxFlat).bg_color
+	assert_that(c.a).is_greater(0.05)   # translucent: blends with the panel drawn behind
+	assert_that(c.a).is_less(0.95)
+	assert_that(c.v).is_less(0.5)        # dark overlay -> renders darker than its surroundings
+	dock.free()
 
 
 func test_status_labels_live_in_status_bar_not_in_header() -> void:
@@ -160,6 +168,7 @@ func test_status_bar_keeps_dock_minimum_width_small_with_long_text() -> void:
 	dock._branch_label.text = "git: feat/a-very-long-branch-name-that-would-overflow"
 	dock._status_label.text = "session abc12345 — a very long session title that would overflow"
 	dock._usage_label.text = "123456/2000000 tok"
+	dock._sync_status_bar()
 	await get_tree().process_frame
 	await get_tree().process_frame
 	assert_that(dock.get_combined_minimum_size().x).is_less(250.0)
@@ -181,7 +190,12 @@ func test_status_labels_get_real_allocated_width_in_tree() -> void:
 	await get_tree().process_frame
 	# _ready() ran _refresh_branch() and this repo is a git checkout
 	assert_that(dock._branch_label.text).is_not_empty()
+	dock._turn_label.text = "working…"
+	dock._usage_label.text = "12/100 tok"
+	dock._sync_status_bar()
+	await get_tree().process_frame
 	for l in _status_labels(dock):
+		assert_that(l.visible).is_true()  # all four sections have text now
 		assert_that(l.custom_minimum_size.x).is_greater(20.0)
 		assert_that(l.size_flags_horizontal & Control.SIZE_EXPAND_FILL).is_not_equal(0)
 		assert_that(l.get_combined_minimum_size().x).is_greater(20.0)

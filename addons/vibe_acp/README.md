@@ -36,16 +36,16 @@ browser auth.
 - **Mode dropdown** — approval mode (`session/set_mode`: ask / accept-edits /
   smart-approve / auto-approve), persisted in `vibe_acp/approval_mode`.
 - **Compact** — sends `/compact` so the agent summarizes its context.
-- **Status bar** — a slim row *beneath* the prompt input (smaller font and a
-  slightly darkened background strip, so it stays short and visually distinct
-  from the editor's bottom panel) holds all passive status text, keeping the
-  header for interactive controls only. Sections are separated by vertical
-  bars: the current **git branch** of the project (`git: <branch>`,
-  `HEAD@<sha>` when detached, hidden when the project is not a git checkout;
-  refreshed every second, so switching branches in a terminal shows up live),
-  the connection/session state, the turn state (`working…` / `stopping…` /
-  `idle`) and the token usage. A separator only appears when the sections on
-  both sides have text.
+- **Status bar** — a slim row *beneath* the prompt input (smaller font, on a
+  translucent dark background strip so it reads as its own section below the
+  input, distinct from the editor's bottom panel/tab bar) holds all passive
+  status text, keeping the header for interactive controls only. Sections are
+  separated by vertical bars: the current **git branch** of the project
+  (`git: <branch>`, `HEAD@<sha>` when detached, hidden when the project is not
+  a git checkout; refreshed every second, so switching branches in a terminal
+  shows up live), the connection/session state, the turn state
+  (`working…` / `stopping…` / `idle`) and the token usage. Sections without
+  text are hidden and exactly one bar separates consecutive visible sections.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
   `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
