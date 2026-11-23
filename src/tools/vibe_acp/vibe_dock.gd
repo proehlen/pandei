@@ -6,6 +6,14 @@ extends VBoxContainer
 ## Transcript roles are colored/bolded via push_* (bbcode stays OFF so agent
 ## text containing '[' is rendered literally) and every line wraps
 ## (autowrap WORD_SMART), which matters on small laptop screens.
+##
+## Layout note: the editor clamps the vertical splitter between the editor
+## area (+ bottom panel) and the full-height Inspector against the active
+## bottom tab's combined minimum width. The header is therefore an
+## HFlowContainer (min width = widest single control, not the row sum) and
+## no header child carries a large fixed minimum width, so this dock never
+## blocks the Inspector from being resized; the header simply wraps to more
+## rows as the panel narrows.
 
 var client: AcpClient = null
 var fs: AcpFsHandler
@@ -61,13 +69,15 @@ func _notification(what: int) -> void:
 # ---------------------------------------------------------------- UI setup
 
 func _build_ui() -> void:
-	var header := HBoxContainer.new()
+	# HFlowContainer, not HBoxContainer: a flow row's minimum width is the
+	# widest child instead of the sum of all children, which keeps this dock's
+	# combined minimum width small enough for the Inspector splitter to move.
+	var header := HFlowContainer.new()
 	add_child(header)
 
 	_title_label = Label.new()
 	_title_label.text = "Mistral Vibe"
 	_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_title_label.custom_minimum_size.x = 120
 	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(_title_label)
 
@@ -105,7 +115,9 @@ func _build_ui() -> void:
 	s_lbl.text = "Session:"
 	header.add_child(s_lbl)
 	_session_option = OptionButton.new()
-	_session_option.custom_minimum_size.x = 150
+	_session_option.custom_minimum_size.x = 120
+	# without this the option's min width grows to the longest item text
+	_session_option.fit_to_longest_item = false
 	_session_option.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_session_option.tooltip_text = "Resume a previous ACP session"
 	_session_option.item_selected.connect(func(i: int) -> void:
@@ -129,7 +141,9 @@ func _build_ui() -> void:
 	m_lbl.text = "Mode:"
 	header.add_child(m_lbl)
 	_mode_option = OptionButton.new()
-	_mode_option.custom_minimum_size.x = 130
+	_mode_option.custom_minimum_size.x = 110
+	_mode_option.fit_to_longest_item = false
+	_mode_option.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_mode_option.tooltip_text = "Approval mode (session/set_mode)"
 	_mode_option.item_selected.connect(func(i: int) -> void:
 		if client != null and i >= 0 and i < _mode_option.item_count:
@@ -143,7 +157,6 @@ func _build_ui() -> void:
 	_status_label.text = "disconnected"
 	_status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_status_label.clip_text = true
-	_status_label.custom_minimum_size.x = 70
 	header.add_child(_status_label)
 	_turn_label = Label.new()
 	_turn_label.text = ""
