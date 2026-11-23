@@ -30,8 +30,10 @@ var _mode_option: OptionButton
 var _transcript: RichTextLabel
 var _input: TextEdit
 var _send_btn: Button
+var _stop_btn: Button
 var _was_connected := false
 var _busy := false
+var _cancelling := false  # stop requested; busy until prompt_finished arrives
 var _open_dialogs: Array = []  # pending permission/fs dialogs, cancelled on disconnect
 
 # streaming block state: one open block per messageId, closed on role change
@@ -188,10 +190,11 @@ func _build_ui() -> void:
 	_send_btn.text = "Send"
 	_send_btn.pressed.connect(_on_send)
 	btns.add_child(_send_btn)
-	var stop_btn := Button.new()
-	stop_btn.text = "Stop"
-	stop_btn.pressed.connect(func() -> void: if client != null: client.cancel())
-	btns.add_child(stop_btn)
+	_stop_btn = Button.new()
+	_stop_btn.text = "Stop"
+	_stop_btn.tooltip_text = "Cancel the running turn (session/cancel). Enabled only while a turn is active; stays busy until the agent confirms the turn ended."
+	_stop_btn.pressed.connect(_on_stop)
+	btns.add_child(_stop_btn)
 
 # ---------------------------------------------------------------- connection
 
@@ -229,6 +232,7 @@ func _handle_disconnect(message: String) -> void:
 			dlg.cancel()  # AcceptDialog.cancel() -> canceled -> our handlers respond + free
 	_open_dialogs.clear()
 	_busy = false
+	_cancelling = false
 	_close_block()
 	_turn_label.text = ""
 	if message != "":
@@ -239,6 +243,7 @@ func _on_new_session() -> void:
 	_transcript.clear()
 	_close_block()
 	_busy = false
+	_cancelling = false
 	_turn_label.text = ""
 	# Only re-stored after the first prompt in the new session (see _send_text):
 	# vibe-acp does not persist sessions that never received input.
@@ -326,6 +331,9 @@ func _on_session_ready(sid: String, info: Dictionary) -> void:
 				client.set_mode(stored)
 				break
 	client.list_sessions()  # populate the session dropdown automatically
+	# session_id just became non-empty: re-evaluate the Send/Stop buttons
+	# (they were disabled while the session was still being created/loaded)
+	_update_send_state()
 
 func _populate_modes(modes: Variant) -> void:
 	_mode_option.clear()
@@ -355,6 +363,7 @@ func _on_sessions_listed(sessions: Array) -> void:
 
 func _on_prompt_finished(_sid: String, result: Variant, error: Variant) -> void:
 	_busy = false
+	_cancelling = false  # a pending stop is resolved once the turn actually ends
 	_close_block()
 	_turn_label.text = "idle"
 	# the turn ended (finished, failed or cancelled) -> no longer interrupted
@@ -533,8 +542,31 @@ func _append_line_role(role: String, s: String) -> void:
 func _on_send() -> void:
 	_send_text(_input.text)
 
+## Single source of truth for "would sending do anything right now?".
+## Both the Send button and the Ctrl+Enter handler use this, so the button
+## is enabled exactly when Ctrl+Enter works — and disabled exactly when
+## Ctrl+Enter would no-op (e.g. no session yet: prompt() would silently drop
+## the text, so we must not clear the input or flip _busy in that window).
+func _can_send() -> bool:
+	return client != null and client.is_open() and not _busy and not client.session_id.is_empty()
+
+## Stop is only effective while a turn is in flight, and only once per turn:
+## session/cancel is a notification (no response), the turn actually ends
+## when prompt_finished arrives — until then the button stays busy.
+func _can_stop() -> bool:
+	return client != null and _busy and not _cancelling
+
+func _on_stop() -> void:
+	if not _can_stop():
+		return
+	_cancelling = true
+	_turn_label.text = "stopping…"
+	_append_line_role(TranscriptRoles.ROLE_SYS, "stop requested — waiting for the agent to end the turn")
+	client.cancel()
+	_update_send_state()
+
 func _send_text(text: String) -> void:
-	if client == null or not client.is_open() or _busy:
+	if not _can_send():
 		return
 	if text.strip_edges().is_empty():
 		return
@@ -557,7 +589,9 @@ func _on_input_gui_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 func _update_send_state() -> void:
-	_send_btn.disabled = client == null or not client.is_open() or _busy or client.session_id.is_empty()
+	_send_btn.disabled = not _can_send()
+	_stop_btn.disabled = not _can_stop()
+	_stop_btn.text = "Stopping…" if _cancelling else "Stop"
 
 func _update_connection_ui(open: bool) -> void:
 	_connect_btn.visible = not open
@@ -579,3 +613,6 @@ func _process(_delta: float) -> void:
 				client = null
 			else:
 				_update_connection_ui(true)
+	# cheap safety net: keep Send/Stop in sync with the predicates every frame
+	# so no state change (e.g. session_id arriving) can leave them stale
+	_update_send_state()
