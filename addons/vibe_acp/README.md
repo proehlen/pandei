@@ -114,6 +114,22 @@ godot --headless --path . -s addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests/
   mid-turn `session/prompt` if vibe-acp supports it, or cancel-then-prompt.
   Today, typed text is kept in the box while `_busy` but is not sent, and Stop
   is the only way to interrupt a turn.
+- **Editor crash when dragging the permission dialog** (2026-11-23): moving the
+  "Vibe requests permission" dialog (`permission_dialog.gd`,
+  `session/request_permission`) by its titlebar crashed the whole editor to
+  desktop with **signal 11 (SIGSEGV)**. Details live in `~/.xsession-errors` —
+  the file's only `handle_crash` entry: `Program crashed with signal 11`, engine
+  `v4.7.2.stable.official (ed1daf0bf001b61586d9930840f2f1394092c079)`, binary
+  `~/.local/share/godot/4.7.2/godot`, load address `0x400000`, 15-frame C++
+  backtrace but **unsymbolized** (official stripped binary; top frames
+  `main+0x229df84`, `main+0x17b68a0`, `main+0x1388d0c`, `main+0x1734ae4`,
+  `main+0x1739b00`, `main+0x3e0be80`, … `main+0x11d08`, then libc startup). The
+  editor's own log files (`~/.local/share/godot/app_userdata/pandei/logs/`) only
+  contain headless runs (latest is the GdUnit4 suite, exit code 0), so the crash
+  left no log there; no coredump either (`coredumpctl` not installed,
+  `/var/lib/systemd/coredump/` empty, no journal entries). Next step: reproduce
+  with a debug/self-compiled build and symbolize the offsets with `addr2line` to
+  get real frames; until fixed, don't drag the dialog — answer it in place.
 
 ## Known limitations
 
