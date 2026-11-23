@@ -72,8 +72,35 @@ func test_dialog_summary_resolves_hash_via_known_by_id() -> void:
 	assert_that(dlg._summary.text).contains("Command: ls -la")
 	assert_that(dlg._raw.text).contains("run a tool")  # raw payload merged too
 	dlg.queue_free()
+	await get_tree().process_frame
 
-func test_dialog_min_height_stays_bounded_for_huge_payload() -> void:
+func test_debug_info_is_collapsed_by_default_and_expands_on_toggle() -> void:
+	var dlg := VibePermissionDialog.new()
+	add_child(dlg)
+	await get_tree().process_frame
+	dlg.setup_dialog({"toolCallId": "effect-abc123", "title": "run a tool",
+		"rawInput": {"command": "ls -la"}}, [{"optionId": "once", "name": "Allow once"}], {})
+	# hidden by default: toggle unpressed, debug scroll invisible
+	assert_that(dlg._debug_toggle.button_pressed).is_false()
+	assert_that(dlg._debug_scroll.visible).is_false()
+	var collapsed_min: float = dlg.get_contents_minimum_size().y
+	# expand via the disclosure toggle
+	dlg._debug_toggle.button_pressed = true
+	dlg._debug_toggle.toggled.emit(true)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_that(dlg._debug_scroll.visible).is_true()
+	var expanded_min: float = dlg.get_contents_minimum_size().y
+	assert_that(expanded_min).is_greater(collapsed_min)  # the raw area adds height
+	# collapse again
+	dlg._debug_toggle.button_pressed = false
+	dlg._debug_toggle.toggled.emit(false)
+	await get_tree().process_frame
+	assert_that(dlg._debug_scroll.visible).is_false()
+	dlg.queue_free()
+	await get_tree().process_frame
+
+func test_dialog_height_stays_bounded_for_huge_payload_in_both_states() -> void:
 	var dlg := VibePermissionDialog.new()
 	add_child(dlg)
 	await get_tree().process_frame
@@ -81,9 +108,15 @@ func test_dialog_min_height_stays_bounded_for_huge_payload() -> void:
 		"rawInput": {"command": "echo " + "y".repeat(20000)}},
 		[{"optionId": "once", "name": "Allow once"}], {})
 	await get_tree().process_frame
-	# the raw payload lives in a bounded scroll area, so content min height
-	# stays small no matter how big the toolCall is
-	assert_that(dlg.get_contents_minimum_size().y).is_less(420.0)
+	# all text lives in bounded scroll areas, so content min height stays small
+	# no matter how big the toolCall is — collapsed …
+	assert_that(dlg.get_contents_minimum_size().y).is_less(320.0)
+	# … and expanded (raw payload visible)
+	dlg._debug_toggle.button_pressed = true
+	dlg._debug_toggle.toggled.emit(true)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_that(dlg.get_contents_minimum_size().y).is_less(480.0)
 	dlg.queue_free()
 	await get_tree().process_frame
 
@@ -105,6 +138,15 @@ func test_popup_on_screen_keeps_whole_dialog_inside_viewport() -> void:
 	assert_that(float(dlg.position.x)).is_greater_equal(0.0)
 	assert_that(float(dlg.position.y)).is_greater_equal(0.0)
 	assert_that(float(dlg.position.x + dlg.size.x)).is_less_equal(float(screen.x + 1))
+	assert_that(float(dlg.position.y + dlg.size.y)).is_less_equal(float(screen.y + 1))
+	# expanding the Debug info section must refit the window but stay on screen
+	dlg._debug_toggle.button_pressed = true
+	dlg._debug_toggle.toggled.emit(true)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_that(dlg._debug_scroll.visible).is_true()
+	assert_that(float(dlg.size.y)).is_less_equal(float(screen.y))
+	assert_that(float(dlg.position.y)).is_greater_equal(0.0)
 	assert_that(float(dlg.position.y + dlg.size.y)).is_less_equal(float(screen.y + 1))
 	dlg.queue_free()
 	await get_tree().process_frame
