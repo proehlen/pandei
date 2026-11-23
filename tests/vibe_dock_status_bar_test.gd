@@ -119,4 +119,26 @@ func test_status_bar_keeps_dock_minimum_width_small_with_long_text() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	assert_that(dock.get_combined_minimum_size().x).is_less(250.0)
+	assert_that(dock._status_bar.get_combined_minimum_size().x).is_less(250.0)
+	dock.queue_free()
+
+
+## Regression test for the "empty status bar" bug: a Label with
+## text_overrun_behavior collapses its minimum width to ~0 inside a flow
+## container, so without an explicit custom_minimum_size.x floor + EXPAND_FILL
+## the labels are allocated ~1px and render nothing (only the separator shows).
+func test_status_labels_get_real_allocated_width_in_tree() -> void:
+	var dock := VibeAcpDock.new()
+	add_child(dock)
+	dock.set_anchors_preset(Control.PRESET_FULL_RECT)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await get_tree().process_frame
+	# _ready() ran _refresh_branch() and this repo is a git checkout
+	assert_that(dock._branch_label.text).is_not_empty()
+	for l in _status_labels(dock):
+		assert_that(l.custom_minimum_size.x).is_greater(20.0)
+		assert_that(l.size_flags_horizontal & Control.SIZE_EXPAND_FILL).is_not_equal(0)
+		assert_that(l.get_combined_minimum_size().x).is_greater(20.0)
+		assert_that(l.size.x).is_greater(20.0)  # actually allocated enough width to render
 	dock.queue_free()

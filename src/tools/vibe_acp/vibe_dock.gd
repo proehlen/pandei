@@ -213,23 +213,32 @@ func _build_status_bar() -> void:
 	_status_font_size = maxi(9, get_theme_default_font_size() - 3)
 	_status_bar = HFlowContainer.new()
 	add_child(_status_bar)
-	_branch_label = _make_status_label()
+	_branch_label = _make_status_label(180)
 	_branch_label.tooltip_text = "Current git branch of this project (res://)"
 	_status_bar.add_child(_branch_label)
 	_branch_sep = VSeparator.new()
 	_status_bar.add_child(_branch_sep)
-	_status_label = _make_status_label()
+	_status_label = _make_status_label(120)
 	_status_label.text = "disconnected"
 	_status_bar.add_child(_status_label)
-	_turn_label = _make_status_label()
+	_turn_label = _make_status_label(70)
 	_status_bar.add_child(_turn_label)
-	_usage_label = _make_status_label()
+	_usage_label = _make_status_label(90)
 	_status_bar.add_child(_usage_label)
 
-func _make_status_label() -> Label:
+## One status-bar label. The custom_minimum_size.x floor + EXPAND_FILL are
+## required, not cosmetic: a flow container lays children out at their
+## minimum width, and a Label with text_overrun_behavior set collapses its
+## minimum width to ~0, so without the floor the text would be squeezed to
+## ~1px and never render (only the separators would be visible). The floor
+## also bounds the row's minimum width (flow min = widest child), and
+## EXPAND_FILL lets the labels use leftover width when the panel is wide.
+func _make_status_label(min_width: float) -> Label:
 	var l := Label.new()
 	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	l.clip_text = true
+	l.custom_minimum_size.x = min_width
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.add_theme_font_size_override("font_size", _status_font_size)
 	if is_inside_tree():
 		# dim the status text against the transcript; resolved through the
