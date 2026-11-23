@@ -2,14 +2,20 @@ class_name VibeAcpDock
 extends VBoxContainer
 ## Bottom-panel dock that hosts the ACP conversation with vibe-acp.
 ## Owns the AcpClient lifecycle; the EditorPlugin only adds/removes this control.
+##
+## Transcript roles are colored/bolded via push_* (bbcode stays OFF so agent
+## text containing '[' is rendered literally) and every line wraps
+## (autowrap WORD_SMART), which matters on small laptop screens.
 
 var client: AcpClient = null
 var fs: AcpFsHandler
 
 var _project_root := ""
 var _connect_btn: Button
+var _disconnect_btn: Button
 var _title_label: Label
 var _status_label: Label
+var _turn_label: Label
 var _usage_label: Label
 var _session_option: OptionButton
 var _mode_option: OptionButton
@@ -18,13 +24,28 @@ var _input: TextEdit
 var _send_btn: Button
 var _was_connected := false
 var _busy := false
-var _last_msg_id := ""
+var _open_dialogs: Array = []  # pending permission/fs dialogs, cancelled on disconnect
+
+# streaming block state: one open block per messageId, closed on role change
+var _block_open := false
+var _block_pushes := 0
+var _open_msg_id := ""
+var _open_role := ""
+
+const COLOR_USER := Color(0.55, 0.80, 1.00)
+const COLOR_AGENT := Color(0.90, 0.95, 1.00)
+const COLOR_THOUGHT := Color(0.62, 0.62, 0.66)
+const COLOR_TOOL := Color(0.95, 0.85, 0.45)
+const COLOR_SYS := Color(0.62, 0.62, 0.66)
+const COLOR_ERROR := Color(1.00, 0.50, 0.45)
 
 func _ready() -> void:
 	_project_root = ProjectSettings.globalize_path("res://")
 	fs = AcpFsHandler.new(_project_root)
+	custom_minimum_size = Vector2(0, 170)  # keep the panel usable when small
 	_build_ui()
-	_append_line("[vibe-acp] Dock ready. Press Connect to start the agent.")
+	_append_line_role(TranscriptRoles.ROLE_SYS, "Dock ready. " +
+		("Connecting automatically…" if VibeAcpSettings.is_auto_connect() else "Press Connect to start the agent."))
 	if VibeAcpSettings.is_auto_connect():
 		connect_to_agent()
 
@@ -32,6 +53,10 @@ func shutdown() -> void:
 	if client != null:
 		client.connection.close()
 		client = null
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		shutdown()  # idempotent; also covers teardown paths that skip _exit_tree
 
 # ---------------------------------------------------------------- UI setup
 
@@ -41,13 +66,39 @@ func _build_ui() -> void:
 
 	_title_label = Label.new()
 	_title_label.text = "Mistral Vibe"
+	_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_title_label.custom_minimum_size.x = 120
+	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(_title_label)
 
 	_connect_btn = Button.new()
 	_connect_btn.text = "Connect"
-	_connect_btn.toggle_mode = true
-	_connect_btn.toggled.connect(_on_connect_toggled)
+	_connect_btn.tooltip_text = "Start vibe-acp and connect"
+	_connect_btn.pressed.connect(connect_to_agent)
 	header.add_child(_connect_btn)
+
+	_disconnect_btn = Button.new()
+	_disconnect_btn.tooltip_text = "Disconnect (stops the vibe-acp process)"
+	var close_icon: Texture2D = get_theme_icon("Close", "EditorIcons")
+	if close_icon != null:
+		_disconnect_btn.icon = close_icon
+	else:
+		_disconnect_btn.text = "Disconnect"
+	_disconnect_btn.flat = true
+	_disconnect_btn.visible = false
+	_disconnect_btn.pressed.connect(disconnect_from_agent)
+	header.add_child(_disconnect_btn)
+
+	var new_btn := Button.new()
+	new_btn.text = "New"
+	new_btn.tooltip_text = "Start a new session (fresh context)"
+	new_btn.pressed.connect(_on_new_session)
+	header.add_child(new_btn)
+	var compact_btn := Button.new()
+	compact_btn.text = "Compact"
+	compact_btn.tooltip_text = "Ask the agent to compact the conversation (/compact)"
+	compact_btn.pressed.connect(func() -> void: _send_text("/compact"))
+	header.add_child(compact_btn)
 	header.add_child(VSeparator.new())
 
 	var s_lbl := Label.new()
@@ -55,6 +106,7 @@ func _build_ui() -> void:
 	header.add_child(s_lbl)
 	_session_option = OptionButton.new()
 	_session_option.custom_minimum_size.x = 150
+	_session_option.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_session_option.tooltip_text = "Resume a previous ACP session"
 	_session_option.item_selected.connect(func(i: int) -> void:
 		if client != null and i >= 0 and i < _session_option.item_count:
@@ -62,11 +114,16 @@ func _build_ui() -> void:
 			if sid != "" and sid != client.session_id:
 				client.load_or_new(sid))
 	header.add_child(_session_option)
-	var list_btn := Button.new()
-	list_btn.text = "List"
-	list_btn.tooltip_text = "List resumable sessions (session/list)"
-	list_btn.pressed.connect(func() -> void: if client != null: client.list_sessions())
-	header.add_child(list_btn)
+	var refresh_btn := Button.new()
+	refresh_btn.tooltip_text = "Refresh session list"
+	var reload_icon: Texture2D = get_theme_icon("Reload", "EditorIcons")
+	if reload_icon != null:
+		refresh_btn.icon = reload_icon
+	else:
+		refresh_btn.text = "Refresh"
+	refresh_btn.flat = true
+	refresh_btn.pressed.connect(func() -> void: if client != null: client.list_sessions())
+	header.add_child(refresh_btn)
 
 	var m_lbl := Label.new()
 	m_lbl.text = "Mode:"
@@ -84,16 +141,24 @@ func _build_ui() -> void:
 
 	_status_label = Label.new()
 	_status_label.text = "disconnected"
+	_status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_status_label.clip_text = true
+	_status_label.custom_minimum_size.x = 70
 	header.add_child(_status_label)
+	_turn_label = Label.new()
+	_turn_label.text = ""
+	header.add_child(_turn_label)
 	_usage_label = Label.new()
 	_usage_label.text = ""
 	header.add_child(_usage_label)
 
 	_transcript = RichTextLabel.new()
 	_transcript.bbcode_enabled = false  # agent text may contain '['; keep it literal
+	_transcript.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # wrap long lines on small screens
 	_transcript.scroll_following = true
 	_transcript.selection_enabled = true
 	_transcript.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_transcript.meta_clicked.connect(_on_transcript_meta_clicked)
 	add_child(_transcript)
 
 	var input_row := HBoxContainer.new()
@@ -122,51 +187,74 @@ func connect_to_agent() -> void:
 		return
 	var exe := VibeAcpSettings.get_executable()
 	if exe.is_empty():
-		_append_line("[err] vibe-acp executable not found. Install it (uv tool install mistral-vibe) " +
+		_append_line_role(TranscriptRoles.ROLE_ERROR, "vibe-acp executable not found. Install it (uv tool install mistral-vibe) " +
 			"or set vibe_acp/executable in editor settings. Auth via CLI: vibe --setup")
-		_connect_btn.set_pressed_no_signal(false)
 		return
 	var transport := PipeTransport.new()
 	var err := transport.open_executable(exe, PackedStringArray())
 	if err != OK:
-		_append_line("[err] failed to start %s (error %d)" % [exe, err])
-		_connect_btn.set_pressed_no_signal(false)
+		_append_line_role(TranscriptRoles.ROLE_ERROR, "failed to start %s (error %d)" % [exe, err])
 		return
 	var connection := AcpConnection.new(transport)
 	client = AcpClient.new(connection, _project_root)
 	_wire_client()
-	_append_line("[sys] started %s" % exe)
+	_append_line_role(TranscriptRoles.ROLE_SYS, "started %s" % exe)
 	client.initialize()
 
 func disconnect_from_agent() -> void:
 	if client != null:
 		client.connection.close()
-		_append_line("[sys] stopped agent process")
 		client = null
-	_connect_btn.set_pressed_no_signal(false)
-	_status_label.text = "disconnected"
+	_handle_disconnect("stopped agent process")
 
-func _on_connect_toggled(pressed: bool) -> void:
-	if pressed:
-		connect_to_agent()
+## Central teardown for any disconnect (button, process death): answer pending
+## server requests, reset turn state, refresh the header. Without this, a dead
+## agent left _busy stuck and permission dialogs hanging forever.
+func _handle_disconnect(message: String) -> void:
+	for dlg in _open_dialogs:
+		if is_instance_valid(dlg):
+			dlg.cancel()  # AcceptDialog.cancel() -> canceled -> our handlers respond + free
+	_open_dialogs.clear()
+	_busy = false
+	_close_block()
+	_turn_label.text = ""
+	if message != "":
+		_append_line_role(TranscriptRoles.ROLE_SYS, message)
+	_update_connection_ui(false)
+
+func _on_new_session() -> void:
+	_transcript.clear()
+	_close_block()
+	_busy = false
+	_turn_label.text = ""
+	# Only re-stored after the first prompt in the new session (see _send_text):
+	# vibe-acp does not persist sessions that never received input.
+	VibeAcpSettings.set_last_session("")
+	_update_send_state()
+	if client != null and client.is_open():
+		_append_line_role(TranscriptRoles.ROLE_SYS, "starting a new session…")
+		client.new_session()
 	else:
-		disconnect_from_agent()
+		_append_line_role(TranscriptRoles.ROLE_SYS, "not connected — press Connect first")
 
 func _wire_client() -> void:
 	client.initialized.connect(func(_result: Dictionary) -> void:
-		_append_line("[sys] ACP initialized (protocol v%d), agent: %s v%s" % [
-			AcpClient.PROTOCOL_VERSION,
+		_append_line_role(TranscriptRoles.ROLE_SYS, "ACP initialized, agent: %s v%s" % [
 			str(client.server_info.get("agentInfo", {}).get("title", "vibe-acp")),
 			str(client.server_info.get("agentInfo", {}).get("version", "?"))])
 		client.load_or_new(VibeAcpSettings.get_last_session()))
 	client.auth_methods_available.connect(func(_methods: Array) -> void:
-		_append_line("[sys] agent reports auth methods; if prompts fail, sign in via CLI: vibe --setup"))
+		_append_line_role(TranscriptRoles.ROLE_SYS, "if prompts fail, sign in via CLI: vibe --setup"))
 	client.session_ready.connect(_on_session_ready)
-	client.session_error.connect(func(m: String) -> void: _append_line("[err] " + m))
+	client.session_error.connect(func(m: String) -> void: _append_line_role(TranscriptRoles.ROLE_ERROR, m))
+	client.session_load_failed.connect(func(sid: String, _error: Variant) -> void:
+		# the stored session is gone server-side; drop it so we don't retry it
+		if VibeAcpSettings.get_last_session() == sid:
+			VibeAcpSettings.set_last_session(""))
 	client.sessions_listed.connect(_on_sessions_listed)
 	client.prompt_finished.connect(_on_prompt_finished)
 	client.session_update.connect(_render_update)
-	client.log_line.connect(func(t: String) -> void: _append_line("[agent] " + t))
+	client.log_line.connect(func(t: String) -> void: _append_line_role(TranscriptRoles.ROLE_SYS, t))
 
 	client.dispatcher.register_request_handler("session/request_permission", _on_permission_request)
 	client.dispatcher.register_request_handler("fs/read_text_file", func(params: Variant, respond: Callable) -> void:
@@ -184,9 +272,11 @@ func _wire_client() -> void:
 # ---------------------------------------------------------------- handlers
 
 func _on_session_ready(sid: String, info: Dictionary) -> void:
-	VibeAcpSettings.set_last_session(sid)
+	# NOTE: the stored "last session" is only overwritten once the user sends a
+	# prompt (see _on_send). vibe-acp does not persist sessions that never got
+	# any input, so storing them would make every restart log "Session not found".
 	_status_label.text = "session " + sid.substr(0, 8)
-	_append_line("[sys] session ready: %s" % sid)
+	_append_line_role(TranscriptRoles.ROLE_SYS, "session ready: " + sid)
 	_populate_modes(info.get("modes", {}))
 	var stored := VibeAcpSettings.get_mode()
 	if stored != "":
@@ -195,6 +285,7 @@ func _on_session_ready(sid: String, info: Dictionary) -> void:
 				_mode_option.select(i)
 				client.set_mode(stored)
 				break
+	client.list_sessions()  # populate the session dropdown automatically
 
 func _populate_modes(modes: Variant) -> void:
 	_mode_option.clear()
@@ -219,24 +310,29 @@ func _on_sessions_listed(sessions: Array) -> void:
 				label += " — " + str(s["title"])
 			_session_option.add_item(label)
 			_session_option.set_item_metadata(_session_option.item_count - 1, sid)
+			if sid == client.session_id if client != null else false:
+				_session_option.select(_session_option.item_count - 1)
 
 func _on_prompt_finished(_sid: String, result: Variant, error: Variant) -> void:
 	_busy = false
-	_update_send_state()
+	_close_block()
+	_turn_label.text = "idle"
 	if error != null:
-		_append_line("[err] prompt failed: " + str(error))
-	elif result is Dictionary:
-		_append_line("[sys] turn finished: %s" % str(result.get("stopReason", "?")))
+		_append_line_role(TranscriptRoles.ROLE_ERROR, "prompt failed: " + str(error))
+	# a normal end_turn is not transcript noise; it only flips the state label
+	_update_send_state()
 
 func _on_permission_request(params: Variant, respond: Callable) -> void:
 	var p: Dictionary = params if params is Dictionary else {}
 	var tool_call: Dictionary = p.get("toolCall", {}) if p.get("toolCall") is Dictionary else {}
 	var options: Array = p.get("options", []) if p.get("options") is Array else []
-	_append_line("[perm] %s wants permission" % str(tool_call.get("title", "run a tool")))
+	_append_line_role(TranscriptRoles.ROLE_SYS, "permission requested: " + str(tool_call.get("title", "run a tool")))
 	var dlg := VibePermissionDialog.new()
 	add_child(dlg)
+	_open_dialogs.append(dlg)
 	dlg.setup_dialog(tool_call, options)
 	dlg.resolved.connect(func(option_id: String, cancelled: bool) -> void:
+		_open_dialogs.erase(dlg)
 		if cancelled:
 			respond.call({"outcome": {"outcome": "cancelled"}})
 		else:
@@ -251,15 +347,18 @@ func _on_fs_write(params: Variant, respond: Callable) -> void:
 	dlg.title = "Vibe wants to write a file"
 	dlg.dialog_text = "Allow vibe-acp to write:\n%s\n\n(%d bytes)" % [path, str(p.get("content", "")).length()]
 	add_child(dlg)
+	_open_dialogs.append(dlg)
 	dlg.confirmed.connect(func() -> void:
+		_open_dialogs.erase(dlg)
 		var r := fs.handle_write(p)
 		if r.has("error"):
 			respond.call(null, r["error"])
 		else:
 			respond.call(r["result"])
-		_append_line("[fs] wrote " + path)
+		_append_line_role(TranscriptRoles.ROLE_SYS, "wrote " + path)
 		dlg.queue_free())
 	dlg.canceled.connect(func() -> void:
+		_open_dialogs.erase(dlg)
 		respond.call(null, {"code": -32001, "message": "file write denied in the editor"})
 		dlg.queue_free())
 	dlg.popup_centered()
@@ -267,52 +366,143 @@ func _on_fs_write(params: Variant, respond: Callable) -> void:
 # ---------------------------------------------------------------- rendering
 
 func _render_update(_sid: String, update: Dictionary) -> void:
-	var kind := str(update.get("sessionUpdate", ""))
-	match kind:
-		"agent_message_chunk":
-			var mid := str(update.get("messageId", ""))
-			if mid != _last_msg_id:
-				_last_msg_id = mid
-				_transcript.append_text("\nVibe: ")
-			_transcript.append_text(str(_content_text(update)))
-		"agent_thought_chunk":
-			_transcript.append_text(str(_content_text(update)))
-		"user_message_chunk":
-			_last_msg_id = ""
-			_append_line("\nYou: " + _content_text(update))
-		"tool_call":
-			_append_line("\n[tool] %s — %s" % [str(update.get("title", "?")), str(update.get("status", "pending"))])
-		"tool_call_update":
-			_append_line("       %s: %s" % [str(update.get("title", str(update.get("toolCallId", "")))), str(update.get("status", ""))])
-		"usage_update":
-			_usage_label.text = "%d/%d tok" % [int(update.get("used", 0)), int(update.get("size", 0))]
-		"session_info_update":
-			var t := str(update.get("title", ""))
-			if t != "":
-				_title_label.text = "Mistral Vibe — " + t
-		"plan":
-			for entry in update.get("entries", []):
-				_append_line("  plan [%s] %s" % [str(entry.get("status", "?")), str(entry.get("content", ""))])
+	var role := TranscriptRoles.role_for_update(update)
+	match role:
+		TranscriptRoles.ROLE_AGENT, TranscriptRoles.ROLE_THOUGHT:
+			_stream_chunk(role, update)
+		TranscriptRoles.ROLE_USER:
+			_append_line_role(TranscriptRoles.ROLE_USER, _content_text(update))
+		TranscriptRoles.ROLE_TOOL:
+			var is_call := str(update.get("sessionUpdate", "")) == "tool_call"
+			var title := str(update.get("title", str(update.get("toolCallId", "?"))))
+			var status := str(update.get("status", "pending" if is_call else ""))
+			_append_tool_line(title, status, TranscriptRoles.locations_of(update))
 		_:
-			pass  # available_commands_update, config_option_update, etc.
+			match str(update.get("sessionUpdate", "")):
+				"usage_update":
+					_usage_label.text = "%d/%d tok" % [int(update.get("used", 0)), int(update.get("size", 0))]
+				"session_info_update":
+					var t := str(update.get("title", ""))
+					if t != "":
+						_title_label.text = "Mistral Vibe — " + t
+				"plan":
+					for entry in update.get("entries", []):
+						_append_line_role(TranscriptRoles.ROLE_TOOL, "plan [%s] %s" % [str(entry.get("status", "?")), str(entry.get("content", ""))])
+				_:
+					pass  # available_commands_update, config_option_update, etc.
+
+func _stream_chunk(role: String, update: Dictionary) -> void:
+	var mid := str(update.get("messageId", ""))
+	if not _block_open or mid != _open_msg_id or _open_role != role:
+		_open_block(role, TranscriptRoles.prefix_for_role(role))
+		_open_msg_id = mid
+		_open_role = role
+	_transcript.append_text(_content_text(update))
 
 func _content_text(update: Dictionary) -> String:
 	var c: Variant = update.get("content", {})
 	return str(c.get("text", "")) if c is Dictionary else ""
 
-func _append_line(s: String) -> void:
-	_transcript.append_text(s + "\n")
+## Tool line with clickable file:line links (push_meta works with bbcode off).
+func _append_tool_line(title: String, status: String, locations: Array) -> void:
+	_close_block()
+	_open_block(TranscriptRoles.ROLE_TOOL, TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_TOOL))
+	_transcript.append_text("%s — %s" % [title, status])
+	for loc in locations:
+		if loc is Dictionary:
+			var p := str(loc.get("path", ""))
+			var line := int(loc.get("line", 0))
+			if p != "":
+				_transcript.append_text("  ")
+				_transcript.push_meta({"path": p, "line": line})
+				_transcript.push_color(COLOR_USER)
+				_transcript.push_underline()
+				_transcript.append_text(_display_path(p) + (":%d" % line if line > 0 else ""))
+				_transcript.pop()  # underline
+				_transcript.pop()  # color
+				_transcript.pop()  # meta
+	_close_block()
+
+func _display_path(p: String) -> String:
+	return p if p.begins_with("res://") else ProjectSettings.localize_path(p)
+
+func _on_transcript_meta_clicked(meta: Variant) -> void:
+	if not (meta is Dictionary):
+		return
+	var p := str(meta.get("path", ""))
+	var line := int(meta.get("line", 0))
+	if p.is_empty():
+		return
+	var res := _display_path(p)
+	if res.ends_with(".gd") and ResourceLoader.exists(res):
+		var s := load(res) as Script
+		if s != null:
+			EditorInterface.edit_script(s, maxi(line, 1))
+	elif res.ends_with(".tscn") and ResourceLoader.exists(res):
+		EditorInterface.open_scene_from_path(res)
+	elif ResourceLoader.exists(res):
+		EditorInterface.edit_resource(load(res))
+
+func _role_color(role: String) -> Color:
+	match role:
+		TranscriptRoles.ROLE_USER:
+			return COLOR_USER
+		TranscriptRoles.ROLE_AGENT:
+			return COLOR_AGENT
+		TranscriptRoles.ROLE_THOUGHT:
+			return COLOR_THOUGHT
+		TranscriptRoles.ROLE_TOOL:
+			return COLOR_TOOL
+		TranscriptRoles.ROLE_ERROR:
+			return COLOR_ERROR
+	return COLOR_SYS
+
+func _open_block(role: String, prefix: String) -> void:
+	_close_block()
+	_transcript.push_color(_role_color(role))
+	_transcript.push_bold()
+	_transcript.append_text(prefix)
+	_transcript.pop()  # bold off; color stays active for the body text
+	_block_pushes = 1
+	if role == TranscriptRoles.ROLE_THOUGHT:
+		_transcript.push_italics()  # Godot 4 name; push_italic() does not exist
+		_block_pushes += 1
+	_block_open = true
+
+func _close_block() -> void:
+	if _block_open:
+		_transcript.append_text("\n")
+		for i in _block_pushes:
+			_transcript.pop()
+	_block_open = false
+	_block_pushes = 0
+	_open_msg_id = ""
+	_open_role = ""
+
+func _append_line_role(role: String, s: String) -> void:
+	_close_block()
+	_open_block(role, TranscriptRoles.prefix_for_role(role))
+	_transcript.append_text(s)
+	_close_block()
 
 # ---------------------------------------------------------------- input
 
 func _on_send() -> void:
+	_send_text(_input.text)
+
+func _send_text(text: String) -> void:
 	if client == null or not client.is_open() or _busy:
 		return
-	var text := _input.text
+	if text.strip_edges().is_empty():
+		return
 	_input.text = ""
 	_busy = true
+	_turn_label.text = "working…"
 	_update_send_state()
 	client.prompt(text)
+	# Only now does this session become the one to resume after a restart:
+	# sessions with no input are not persisted by vibe-acp.
+	VibeAcpSettings.set_last_session(client.session_id)
 
 func _on_input_gui_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -323,14 +513,23 @@ func _on_input_gui_input(event: InputEvent) -> void:
 func _update_send_state() -> void:
 	_send_btn.disabled = client == null or not client.is_open() or _busy or client.session_id.is_empty()
 
+func _update_connection_ui(open: bool) -> void:
+	_connect_btn.visible = not open
+	_disconnect_btn.visible = open
+	_status_label.text = "connected" if open else "disconnected"
+	if not open:
+		_turn_label.text = ""
+		_usage_label.text = ""
+	_update_send_state()
+
 func _process(_delta: float) -> void:
 	if client != null:
 		client.pump()
 		var open := client.is_open()
 		if open != _was_connected:
 			_was_connected = open
-			_connect_btn.set_pressed_no_signal(open)
-			_status_label.text = "connected" if open else "disconnected (exit %d)" % client.connection.exit_code()
 			if not open:
-				_append_line("[sys] agent process ended")
-		_update_send_state()
+				_handle_disconnect("agent process ended (exit %d)" % client.connection.exit_code())
+				client = null
+			else:
+				_update_connection_ui(true)
