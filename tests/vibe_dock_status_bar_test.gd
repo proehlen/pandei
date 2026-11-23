@@ -50,14 +50,58 @@ func _remove_recursive(dir: String) -> void:
 
 func test_status_bar_is_last_child_below_the_input_row() -> void:
 	var dock := _make_dock()
-	assert_that(dock.get_child(dock.get_child_count() - 1) == dock._status_bar).is_true()
+	# the status row is a PanelContainer (background strip) wrapping the flow row
+	var last: Control = dock.get_child(dock.get_child_count() - 1)
+	assert_that(last == dock._status_bar_bg).is_true()
+	assert_that(dock._status_bar_bg is PanelContainer).is_true()
+	assert_that(dock._status_bar.get_parent() == dock._status_bar_bg).is_true()
 	assert_that(dock._status_bar is HFlowContainer).is_true()
 	var children := dock.get_children()
 	var input_idx := children.find(dock._input_row)
-	var bar_idx := children.find(dock._status_bar)
+	var bar_idx := children.find(dock._status_bar_bg)
 	assert_that(input_idx).is_greater(-1)
 	assert_that(bar_idx).is_greater(input_idx)
 	dock.free()
+
+
+func test_separators_between_all_sections_follow_neighbor_text() -> void:
+	var dock := _make_dock()
+	dock._project_root = _mktemp_repo("ref: refs/heads/main\n")
+	dock._refresh_branch()
+	# four sections, three separators; turn/usage empty -> only sep after branch
+	assert_that(dock._status_seps.size()).is_equal(3)
+	assert_that(dock._status_seps[0] == dock._branch_sep).is_true()
+	assert_that(dock._status_seps[0].visible).is_true()
+	assert_that(dock._status_seps[1].visible).is_false()
+	assert_that(dock._status_seps[2].visible).is_false()
+	# turn and usage appear -> all separators visible
+	dock._turn_label.text = "working…"
+	dock._usage_label.text = "12/100 tok"
+	dock._sync_status_separators()
+	for sep in dock._status_seps:
+		assert_that(sep.visible).is_true()
+	# no git repo -> branch label and its separator hidden, the rest stay
+	dock._project_root = "/nonexistent/path/xyz"
+	dock._refresh_branch()
+	assert_that(dock._branch_label.visible).is_false()
+	assert_that(dock._status_seps[0].visible).is_false()
+	assert_that(dock._status_seps[1].visible).is_true()
+	assert_that(dock._status_seps[2].visible).is_true()
+	dock.free()
+
+
+func test_status_bar_background_is_a_darker_panel_stylebox_in_tree() -> void:
+	var dock := VibeAcpDock.new()
+	add_child(dock)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var sb := dock._status_bar_bg.get_theme_stylebox("panel")
+	assert_that(sb is StyleBoxFlat).is_true()
+	# darker (lower brightness) than the plain themed PanelContainer background
+	var panel_bg := dock.get_theme_stylebox("panel", "PanelContainer")
+	if panel_bg is StyleBoxFlat and panel_bg.bg_color.a > 0.0:
+		assert_that((sb as StyleBoxFlat).bg_color.v).is_less(panel_bg.bg_color.v)
+	dock.queue_free()
 
 
 func test_status_labels_live_in_status_bar_not_in_header() -> void:
@@ -120,6 +164,7 @@ func test_status_bar_keeps_dock_minimum_width_small_with_long_text() -> void:
 	await get_tree().process_frame
 	assert_that(dock.get_combined_minimum_size().x).is_less(250.0)
 	assert_that(dock._status_bar.get_combined_minimum_size().x).is_less(250.0)
+	assert_that(dock._status_bar_bg.get_combined_minimum_size().x).is_less(250.0)
 	dock.queue_free()
 
 

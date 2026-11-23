@@ -18,8 +18,9 @@ extends VBoxContainer
 ##
 ## The header carries only interactive controls (buttons, dropdowns); all
 ## passive status text lives in the slim status bar beneath the prompt input
-## (smaller font, so a shorter row): the git branch, connection/session
-## state, turn state and token usage.
+## (smaller font + slightly darkened background, so a short, distinct row):
+## the git branch, connection/session state, turn state and token usage,
+## separated by vertical bars.
 
 var client: AcpClient = null
 var fs: AcpFsHandler
@@ -32,8 +33,11 @@ var _status_label: Label
 var _turn_label: Label
 var _usage_label: Label
 var _branch_label: Label
-var _branch_sep: VSeparator
+var _branch_sep: VSeparator  # = _status_seps[0]; kept as a named member for readability/tests
+var _status_bar_bg: PanelContainer
 var _status_bar: HFlowContainer
+var _status_seps: Array[VSeparator] = []  # sep i sits between _status_labels_ordered[i] and [i+1]
+var _status_labels_ordered: Array[Label] = []  # branch, status, turn, usage
 var _branch_timer: Timer
 var _status_font_size := 0
 var _session_option: OptionButton
@@ -206,25 +210,69 @@ func _build_ui() -> void:
 	_build_status_bar()
 
 ## Slim status row beneath the prompt input: git branch + connection/session,
-## turn and token-usage labels. A smaller font keeps the row short, and
-## HFlowContainer (not HBox) keeps the dock's minimum width at the widest
-## single label so the Inspector splitter can still resize freely.
+## turn and token-usage labels separated by vertical bars. A smaller font
+## keeps the row short, a slightly darkened PanelContainer background makes it
+## read as its own strip instead of bleeding into the editor's bottom panel,
+## and the inner HFlowContainer (not HBox) keeps the dock's minimum width at
+## the widest single label so the Inspector splitter can still resize freely.
 func _build_status_bar() -> void:
 	_status_font_size = maxi(9, get_theme_default_font_size() - 3)
+	_status_bar_bg = PanelContainer.new()
+	if is_inside_tree():
+		_status_bar_bg.add_theme_stylebox_override("panel", _make_status_bar_stylebox())
+	add_child(_status_bar_bg)
 	_status_bar = HFlowContainer.new()
-	add_child(_status_bar)
+	_status_bar_bg.add_child(_status_bar)
 	_branch_label = _make_status_label(180)
 	_branch_label.tooltip_text = "Current git branch of this project (res://)"
 	_status_bar.add_child(_branch_label)
-	_branch_sep = VSeparator.new()
-	_status_bar.add_child(_branch_sep)
+	_branch_sep = _add_status_sep()
 	_status_label = _make_status_label(120)
 	_status_label.text = "disconnected"
 	_status_bar.add_child(_status_label)
+	var status_sep := _add_status_sep()
 	_turn_label = _make_status_label(70)
 	_status_bar.add_child(_turn_label)
+	var turn_sep := _add_status_sep()
 	_usage_label = _make_status_label(90)
 	_status_bar.add_child(_usage_label)
+	_status_labels_ordered = [_branch_label, _status_label, _turn_label, _usage_label]
+	_status_seps = [_branch_sep, status_sep, turn_sep]
+
+func _add_status_sep() -> VSeparator:
+	var sep := VSeparator.new()
+	_status_bar.add_child(sep)
+	return sep
+
+## Slightly darkened background for the status strip, derived from the themed
+## PanelContainer background so it stays a subtle "one step darker" shade in
+## both dark and light editor themes.
+func _make_status_bar_stylebox() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	var base := Color(0.5, 0.5, 0.5)
+	var panel_sb := get_theme_stylebox("panel", "PanelContainer")
+	if panel_sb is StyleBoxFlat and panel_sb.bg_color.a > 0.0:
+		base = (panel_sb as StyleBoxFlat).bg_color
+	sb.bg_color = base.darkened(0.15)
+	sb.content_margin_left = 6.0
+	sb.content_margin_right = 6.0
+	sb.content_margin_top = 1.0
+	sb.content_margin_bottom = 1.0
+	sb.corner_radius_top_left = 2
+	sb.corner_radius_top_right = 2
+	sb.corner_radius_bottom_left = 2
+	sb.corner_radius_bottom_right = 2
+	return sb
+
+## A separator is shown only when the sections on BOTH sides render text, so
+## empty labels (e.g. no turn/usage yet, or no git branch) never leave a
+## dangling bar. Called every frame from _process (three string comparisons).
+func _sync_status_separators() -> void:
+	for i in _status_seps.size():
+		var left := _status_labels_ordered[i]
+		var right := _status_labels_ordered[i + 1]
+		_status_seps[i].visible = left.visible and not left.text.is_empty() \
+			and right.visible and not right.text.is_empty()
 
 ## One status-bar label. The custom_minimum_size.x floor + EXPAND_FILL are
 ## required, not cosmetic: a flow container lays children out at their
@@ -253,7 +301,7 @@ func _refresh_branch() -> void:
 	var branch := GitBranch.current_branch(_project_root)
 	_branch_label.text = "git: " + branch if branch != "" else ""
 	_branch_label.visible = branch != ""
-	_branch_sep.visible = branch != ""
+	_sync_status_separators()
 
 # ---------------------------------------------------------------- connection
 
@@ -675,3 +723,5 @@ func _process(_delta: float) -> void:
 	# cheap safety net: keep Send/Stop in sync with the predicates every frame
 	# so no state change (e.g. session_id arriving) can leave them stale
 	_update_send_state()
+	# likewise keep the status-bar separators in sync with the label texts
+	_sync_status_separators()
