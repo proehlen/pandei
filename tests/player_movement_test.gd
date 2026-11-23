@@ -55,6 +55,21 @@ func test_main_scene_scaffolds_ground_player_and_camera() -> void:
 	var body: Node = player.get_node_or_null("Placeholder_Body")
 	assert_that(body).is_not_null()
 	assert_that(body.is_in_group("ai_placeholder")).is_true()
-	var camera: Camera3D = player.get_node_or_null("Camera3D")
+	var camera: Camera3D = main.get_node_or_null("Camera3D")
 	assert_that(camera).is_not_null()
 	assert_that(camera.current).is_true()
+
+
+func test_camera_follows_player_position_with_fixed_orientation() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	var player: Node = main.get_node("Player")
+	var camera: Camera3D = main.get_node("Camera3D")
+	player.position = Vector3(3, 0, -2)
+	player.rotation.y = 2.0 # facing sideways must not swing the camera
+	main.call("follow_player")
+	var camera_rotation: Vector3 = main.get("camera_rotation")
+	assert_that(camera.global_position).is_equal(Vector3(3, 14, 6))
+	assert_that(camera.rotation).is_equal(camera_rotation)
+	assert_that(camera.rotation.y).is_equal(0.0)
