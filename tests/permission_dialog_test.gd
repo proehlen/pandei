@@ -178,6 +178,72 @@ func test_cancel_emits_cancelled() -> void:
 	dlg.queue_free()
 	await get_tree().process_frame
 
+func test_buttons_are_renamed_approve_and_deny() -> void:
+	var dlg := VibePermissionDialog.new()
+	add_child(dlg)
+	await get_tree().process_frame
+	assert_that(dlg.get_ok_button().text).is_equal("Approve")
+	assert_that(dlg.get_cancel_button().text).is_equal("Deny")
+	assert_that(dlg.get_cancel_button().visible).is_true()
+	dlg.queue_free()
+	await get_tree().process_frame
+
+func test_deny_button_uses_same_cancelled_path_as_escape_or_window_close() -> void:
+	var dlg := VibePermissionDialog.new()
+	add_child(dlg)
+	await get_tree().process_frame
+	dlg.setup_dialog({"toolCallId": "t"}, [{"optionId": "once", "name": "Allow once"}], {})
+	var got: Array = []
+	dlg.resolved.connect(func(option_id: String, cancelled: bool) -> void: got.append([option_id, cancelled]))
+	dlg.get_cancel_button().pressed.emit()  # Cancel button -> canceled, like Escape/close
+	assert_that(got).is_equal([["", true]])
+	dlg.queue_free()
+	await get_tree().process_frame
+
+func test_split_options_separates_approve_from_reject_by_kind() -> void:
+	var options := [
+		{"optionId": "allow_once", "name": "Allow once", "kind": "allow_once"},
+		{"optionId": "allow_always", "name": "Allow always", "kind": "allow_always"},
+		{"optionId": "reject_once", "name": "Reject once", "kind": "reject_once"},
+		{"optionId": "reject_always", "name": "Reject always", "kind": "reject_always"},
+	]
+	var parts := VibePermissionDialog.split_options(options)
+	assert_that(parts["approve"].size()).is_equal(2)
+	assert_that(parts["reject"].size()).is_equal(2)
+
+func test_reject_detection_also_matches_name_without_kind() -> void:
+	var parts := VibePermissionDialog.split_options([{"optionId": "d", "name": "Deny"}])
+	assert_that(parts["reject"].size()).is_equal(1)
+	assert_that(parts["approve"].size()).is_equal(0)
+
+func test_dropdown_shows_only_approve_options() -> void:
+	var dlg := VibePermissionDialog.new()
+	add_child(dlg)
+	await get_tree().process_frame
+	dlg.setup_dialog({"toolCallId": "t"}, [
+		{"optionId": "allow_once", "name": "Allow once", "kind": "allow_once"},
+		{"optionId": "allow_always", "name": "Allow always", "kind": "allow_always"},
+		{"optionId": "reject_once", "name": "Reject once", "kind": "reject_once"},
+		{"optionId": "reject_always", "name": "Reject always", "kind": "reject_always"},
+	], {})
+	assert_that(dlg._option_button.item_count).is_equal(2)
+	assert_that(dlg._option_button.get_item_text(0)).is_equal("Allow once")
+	assert_that(dlg._option_button.get_item_text(1)).is_equal("Allow always")
+	assert_that(str(dlg._option_button.get_selected_metadata())).is_equal("allow_once")
+	dlg.queue_free()
+	await get_tree().process_frame
+
+func test_dropdown_falls_back_to_all_options_when_none_are_approve() -> void:
+	var dlg := VibePermissionDialog.new()
+	add_child(dlg)
+	await get_tree().process_frame
+	dlg.setup_dialog({"toolCallId": "t"}, [
+		{"optionId": "reject_once", "name": "Reject once", "kind": "reject_once"},
+	], {})
+	assert_that(dlg._option_button.item_count).is_equal(1)
+	dlg.queue_free()
+	await get_tree().process_frame
+
 # ---------------------------------------------------------------- VibeAcpDock wiring
 
 func test_dock_resolves_hash_only_permission_request_and_answers_jsonrpc() -> void:

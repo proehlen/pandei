@@ -1,8 +1,12 @@
 class_name VibePermissionDialog
-extends AcceptDialog
+extends ConfirmationDialog
 ## Modal approval dialog for ACP session/request_permission.
 ## Emits resolved(option_id, cancelled) exactly once; the caller then answers
 ## the JSON-RPC request and frees the dialog.
+##
+## Buttons: "Approve" (the OK button) answers with the option selected in the
+## dropdown, which lists only the approve-type options; "Deny" (the Cancel
+## button) answers "cancelled" — exactly like Escape or the window close button.
 ##
 ## Sizing contract (the dialog used to grow taller than the screen, hiding the
 ## OK button behind the bottom edge): all text lives in bounded ScrollContainers
@@ -32,6 +36,10 @@ var _done := false
 
 func _init() -> void:
 	title = "Vibe requests permission"
+	# ConfirmationDialog provides both buttons; AcceptDialog only has OK.
+	# Deny keeps the canceled path (same as Escape / window close).
+	get_ok_button().text = "Approve"
+	get_cancel_button().text = "Deny"
 	min_size = DIALOG_MIN_SIZE
 	var vb := VBoxContainer.new()
 	vb.add_child(_spacer(2))
@@ -103,13 +111,37 @@ func _spacer(h: int) -> Control:
 func setup_dialog(tool_call: Dictionary, options: Array, known_by_id: Dictionary = {}) -> void:
 	_summary.text = PermissionText.summarize(tool_call, known_by_id)
 	_raw.text = PermissionText.raw_json(tool_call, known_by_id)
+	# the dropdown lists only approve-type options; reject/deny options are
+	# covered by the Deny button (which answers "cancelled"). Fall back to all
+	# options if the request has no approve option, so the dialog stays usable.
+	var shown: Array = split_options(options)["approve"]
+	if shown.is_empty():
+		shown = options
 	_option_button.clear()
-	for i in options.size():
-		var o: Dictionary = options[i]
+	for i in shown.size():
+		var o: Dictionary = shown[i]
 		_option_button.add_item(str(o.get("name", o.get("optionId", "Allow"))))
 		_option_button.set_item_metadata(i, str(o.get("optionId", "")))
-	if options.size() > 0:
+	if shown.size() > 0:
 		_option_button.select(0)
+
+## Split request options into approve (shown in the dropdown) and reject/deny
+## (covered by the Deny button). Pure/static so tests can drive it directly.
+static func split_options(options: Array) -> Dictionary:
+	var approve: Array = []
+	var reject: Array = []
+	for o in options:
+		if o is Dictionary and _is_reject_option(o):
+			reject.append(o)
+		else:
+			approve.append(o)
+	return {"approve": approve, "reject": reject}
+
+static func _is_reject_option(o: Dictionary) -> bool:
+	var kind := str(o.get("kind", "")).to_lower()
+	var name := str(o.get("name", "")).to_lower()
+	return kind.contains("reject") or kind.contains("deny") \
+		or name.contains("reject") or name.contains("deny")
 
 ## popup_centered() plus clamping into the screen: the OK button must always be
 ## reachable without resizing/dragging the window first.
