@@ -63,10 +63,14 @@ func load_or_new(p_session_id: String) -> void:
 	if p_session_id.is_empty():
 		new_session()
 		return
-	_send_request("session/load", {"sessionId": p_session_id, "cwd": project_root},
+	# ACP requires mcpServers on session/load too (pydantic "Field required"),
+	# otherwise every resume is rejected with -32602 and we fall back to new.
+	_send_request("session/load", {"sessionId": p_session_id, "cwd": project_root, "mcpServers": []},
 		func(result: Variant, error: Variant) -> void:
-			if error == null and result is Dictionary and str(result.get("sessionId", "")) != "":
-				session_id = str(result["sessionId"])
+			# vibe-acp's session/load result carries modes/configOptions but does
+			# not echo sessionId, so fall back to the id we asked to load.
+			if error == null and result is Dictionary:
+				session_id = str(result.get("sessionId", p_session_id))
 				session_ready.emit(session_id, result)
 			else:
 				log_line.emit("Could not resume session %s (%s); starting a new one." % [p_session_id, str(error)])
