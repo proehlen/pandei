@@ -42,6 +42,15 @@ When prototyping scenes or entities before human assets exist in `assets_quarant
 
 ## Git & Branching Rules (Strict)
 - Never commit to, merge into, or rebase main.
+- Session-Start Sync (only when on `main`):
+  1. Determine the active branch (`git rev-parse --abbrev-ref HEAD`). If it is not `main`, skip the sync and go straight to the Pre-Task Branch Check.
+  2. If on `main`, sync with origin before doing any work:
+     a. `git fetch --prune`
+     b. Verify the sync is safe before pulling. Stop with a clear message to the user (do NOT pull) if either:
+        - the working tree is dirty (`git status --porcelain` is non-empty), or
+        - `main` has unpushed commits (`git rev-list --count origin/main..main` > 0 after the fetch), since pulling then could trigger a merge workflow.
+     c. `git pull --ff-only`. If it cannot fast-forward, stop with a message instead of creating a merge.
+     d. `git branch --merged main --delete` to remove feature branches already merged into `main`. (`-d` refuses to delete unmerged branches, so this is non-destructive; never use `-D` without explicit user permission.)
 - Pre-Task Branch Check:
   1. Run `git status` and check the active branch before making any edits.
   2. If currently on `main` and the working tree is completely clean (`git status --porcelain` is empty), automatically create and check out a new semantic feature branch before editing files:
@@ -56,4 +65,7 @@ When prototyping scenes or entities before human assets exist in `assets_quarant
     - test: short description
     - refactor: short description
     - chore: short description
+- Push After Every Commit (feature branches only):
+  - Immediately after committing on a feature branch, run `git push -u origin <branch>` so the branch is created on origin and no local-only commits linger. PRs into `main` are created from GitHub, so local unpushed commits serve no purpose.
+  - If the push fails (e.g. no network, or the remote rejects it), report it clearly to the user instead of silently leaving commits unpushed.
 - Never run destructive Git commands (`git reset --hard`, `git clean -fd`, `git push --force`) without explicit user permission.
