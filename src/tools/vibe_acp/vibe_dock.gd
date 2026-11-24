@@ -52,6 +52,8 @@ var _stop_btn: Button
 var _was_connected := false
 var _busy := false
 var _cancelling := false  # stop requested; busy until prompt_finished arrives
+var _queued: Array[String] = []  # messages submitted while a turn runs; sent when it ends
+var _steer := ""  # first queued message promoted to "send now" (the running turn is cancelled first)
 var _open_dialogs: Array = []  # pending permission/fs dialogs, cancelled on disconnect
 var _tool_calls_by_id: Dictionary = {}  # toolCallId -> tool_call/update seen, to resolve permission-request hashes
 
@@ -195,13 +197,14 @@ func _build_ui() -> void:
 	_input = TextEdit.new()
 	_input.custom_minimum_size = Vector2(0, 64)
 	_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_input.placeholder_text = "Ask Vibe… (Ctrl+Enter to send)"
+	_input.placeholder_text = "Ask Vibe… (Ctrl+Enter to send; while working: submit to queue, submit again with an empty box to steer)"
 	_input.gui_input.connect(_on_input_gui_input)
 	_input_row.add_child(_input)
 	var btns := VBoxContainer.new()
 	_input_row.add_child(btns)
 	_send_btn = Button.new()
 	_send_btn.text = "Send"
+	_send_btn.tooltip_text = "Ctrl+Enter sends. While a turn is running, submitting text queues it for after the turn; submitting again with an empty box steers the first queued message (cancels the current turn, sends it next)."
 	_send_btn.pressed.connect(_on_send)
 	btns.add_child(_send_btn)
 	_stop_btn = Button.new()
@@ -439,6 +442,11 @@ func _handle_disconnect(message: String) -> void:
 	_open_dialogs.clear()
 	_busy = false
 	_cancelling = false
+	if not _queued.is_empty() or _steer != "":
+		_append_line_role(TranscriptRoles.ROLE_SYS,
+			"discarded %d queued message(s): agent disconnected" % (_queued.size() + (1 if _steer != "" else 0)))
+		_queued.clear()
+		_steer = ""
 	_close_block()
 	_turn_label.text = ""
 	if message != "":
@@ -451,6 +459,8 @@ func _on_new_session() -> void:
 	_tool_calls_by_id.clear()
 	_busy = false
 	_cancelling = false
+	_queued.clear()
+	_steer = ""
 	_turn_label.text = ""
 	# Only re-stored after the first prompt in the new session (see _send_text):
 	# vibe-acp does not persist sessions that never received input.
@@ -578,6 +588,7 @@ func _on_prompt_finished(_sid: String, result: Variant, error: Variant) -> void:
 		VibeAcpSettings.set_last_session_busy(false)
 	if error != null:
 		_append_line_role(TranscriptRoles.ROLE_ERROR, "prompt failed: " + str(error))
+	_drain_queue()
 	# a normal end_turn is not transcript noise; it only flips the state label
 	_update_send_state()
 
@@ -764,13 +775,16 @@ func _append_line_role(role: String, s: String) -> void:
 func _on_send() -> void:
 	_send_text(_input.text)
 
-## Single source of truth for "would sending do anything right now?".
+## Single source of truth for "would submitting do anything right now?".
 ## Both the Send button and the Ctrl+Enter handler use this, so the button
 ## is enabled exactly when Ctrl+Enter works — and disabled exactly when
 ## Ctrl+Enter would no-op (e.g. no session yet: prompt() would silently drop
 ## the text, so we must not clear the input or flip _busy in that window).
+## While a turn is running the button stays enabled: submitting queues the
+## text (or steers, see _send_text), it does not send mid-turn — vibe-acp
+## rejects session/prompt while a turn is active.
 func _can_send() -> bool:
-	return client != null and client.is_open() and not _busy and not client.session_id.is_empty()
+	return client != null and client.is_open() and not client.session_id.is_empty()
 
 ## Stop is only effective while a turn is in flight, and only once per turn:
 ## session/cancel is a notification (no response), the turn actually ends
@@ -787,11 +801,59 @@ func _on_stop() -> void:
 	client.cancel()
 	_update_send_state()
 
+## Submit the input box, mirroring the Vibe CLI: while idle, non-empty text is
+## sent immediately. While a turn is running, non-empty text is QUEUED for
+## after the turn (vibe-acp rejects session/prompt mid-turn, so the queue is
+## client-side), and submitting again with an empty box STEERS the first
+## queued message: the running turn is cancelled and that message is sent as
+## the next prompt once the agent confirms the turn ended.
 func _send_text(text: String) -> void:
 	if not _can_send():
 		return
+	if _busy:
+		if not text.strip_edges().is_empty():
+			_queue_text(text)
+		else:
+			_steer_next()
+		return
 	if text.strip_edges().is_empty():
 		return
+	_send_now(text)
+
+## Queue a message for after the current turn and clear the input box.
+func _queue_text(text: String) -> void:
+	_queued.append(text)
+	_input.text = ""
+	_append_line_role(TranscriptRoles.ROLE_SYS,
+		"queued (%d): %s — sent when the current turn ends; submit again with an empty box to steer it now" % [_queued.size(), text])
+	_update_send_state()
+
+## Steer: promote the first queued message to "send next" and cancel the
+## running turn; _drain_queue() sends it when prompt_finished arrives.
+func _steer_next() -> void:
+	if _queued.is_empty() or _cancelling:
+		return
+	_steer = _queued.pop_front()
+	_append_line_role(TranscriptRoles.ROLE_SYS, "steering: %s — cancelling the current turn first" % _steer)
+	_cancelling = true
+	_turn_label.text = "stopping…"
+	client.cancel()
+	_update_send_state()
+
+## After a turn ended: send the steered message if one was promoted,
+## otherwise the oldest queued one, if any.
+func _drain_queue() -> void:
+	var next := ""
+	if _steer != "":
+		next = _steer
+		_steer = ""
+	elif not _queued.is_empty():
+		next = _queued.pop_front()
+	if next != "" and _can_send():
+		_send_now(next)
+	_turn_label.text = "working…" if _busy else "idle"
+
+func _send_now(text: String) -> void:
 	_input.text = ""
 	_busy = true
 	_turn_label.text = "working…"
@@ -812,8 +874,21 @@ func _on_input_gui_input(event: InputEvent) -> void:
 
 func _update_send_state() -> void:
 	_send_btn.disabled = not _can_send()
+	if not _busy:
+		_send_btn.text = "Send"
+	elif not _input.text.strip_edges().is_empty():
+		_send_btn.text = "Queue"
+	elif not _queued.is_empty():
+		_send_btn.text = "Steer"
+	else:
+		_send_btn.text = "Queue"
 	_stop_btn.disabled = not _can_stop()
 	_stop_btn.text = "Stopping…" if _cancelling else "Stop"
+	# keep the turn label in sync with the queue depth (called every frame)
+	if _cancelling:
+		_turn_label.text = "stopping…"
+	elif _busy:
+		_turn_label.text = "working…" + (" +%d queued" % _queued.size() if not _queued.is_empty() else "")
 
 func _update_connection_ui(open: bool) -> void:
 	_connect_btn.visible = not open

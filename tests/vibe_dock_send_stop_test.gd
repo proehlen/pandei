@@ -8,6 +8,10 @@ extends GdUnitTestSuite
 ##   busy "Stopping…" state until prompt_finished arrives (session/cancel is a
 ##   notification, so the turn ends asynchronously), and repeated presses do
 ##   not spam session/cancel.
+## - While a turn runs, Send stays enabled: submitting text QUEUES it (vibe-acp
+##   rejects session/prompt mid-turn), submitting with an empty box STEERS the
+##   first queued message (cancel-then-prompt). Queue/steer details are covered
+##   in vibe_dock_queue_steer_test.gd.
 ## Drives the dock with a fake transport; the UI is built without entering the
 ## tree so _ready() never spawns a real vibe-acp.
 
@@ -105,21 +109,24 @@ func test_send_text_sends_prompt_and_flips_buttons() -> void:
 	assert_that(_count_method(f["transport"], "session/prompt")).is_equal(1)
 	assert_that(dock._busy).is_true()
 	assert_that(dock._input.text).is_equal("")
-	assert_that(dock._send_btn.disabled).is_true()   # busy: Send off
-	assert_that(dock._stop_btn.disabled).is_false()  # busy: Stop on
+	# busy: Stop on; Send stays ENABLED so the user can queue/steer mid-turn
+	assert_that(dock._send_btn.disabled).is_false()
+	assert_that(dock._stop_btn.disabled).is_false()
 	f["dock"].free()
 
 
-func test_ctrl_enter_while_busy_is_blocked_and_keeps_input() -> void:
+func test_ctrl_enter_while_busy_queues_instead_of_sending() -> void:
 	var f := _make_dock()
 	var dock: VibeAcpDock = f["dock"]
 	_ready_session(f)
 	dock._send_text("first")
 	dock._input.text = "second"
 	dock._send_text("second")  # Ctrl+Enter during a running turn
+	# vibe-acp rejects session/prompt mid-turn, so the text is queued client-side
 	assert_that(_count_method(f["transport"], "session/prompt")).is_equal(1)
-	assert_that(dock._input.text).is_equal("second")  # kept, not sent or eaten
-	assert_that(dock._send_btn.disabled).is_true()
+	assert_that(dock._input.text).is_equal("")  # cleared into the queue
+	assert_that(dock._queued).is_equal(["second"])
+	assert_that(dock._busy).is_true()
 	assert_that(dock._stop_btn.disabled).is_false()
 	f["dock"].free()
 
@@ -138,7 +145,7 @@ func test_stop_sends_cancel_notification_once_and_shows_busy() -> void:
 	assert_that(dock._cancelling).is_true()
 	assert_that(dock._stop_btn.disabled).is_true()  # busy: no repeated presses
 	assert_that(dock._stop_btn.text).is_equal("Stopping…")
-	assert_that(dock._send_btn.disabled).is_true()
+	assert_that(dock._send_btn.disabled).is_false()  # still enabled: queue/steer allowed mid-turn
 	assert_that(dock._turn_label.text).is_equal("stopping…")
 	dock._on_stop()  # second press while cancelling must be a no-op
 	assert_that(_count_method(f["transport"], "session/cancel")).is_equal(1)

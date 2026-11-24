@@ -54,14 +54,21 @@ browser auth.
   `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
   the editor. Long lines wrap.
-- **Input** — Ctrl/Cmd+Enter sends. The **Send** button is enabled exactly
-  when Ctrl+Enter would work (both use the same `_can_send()` check: connected,
-  a session is ready, and no turn is running). **Stop** sends
-  `session/cancel` (a notification per the ACP spec — no response is expected
-  or awaited) and is only enabled while a turn is actually running. Because
-  the cancel is asynchronous — the turn ends when `prompt_finished` arrives —
-  the button switches to a busy **Stopping…** state after being pressed, so it
-  can't be spammed while a previous stop is still in flight.
+- **Input** — Ctrl/Cmd+Enter sends. While a turn is running, submitting text
+  **queues** it for after the turn (vibe-acp rejects `session/prompt` mid-turn,
+  so the queue lives client-side; the turn label shows `working… +N queued`).
+  Submitting again with an empty box **steers** the first queued message: the
+  running turn is cancelled (`session/cancel`) and that message is sent as the
+  next prompt once the agent confirms the turn ended — like the Vibe CLI, where
+  typing while the agent works queues by default and pressing Enter again sends
+  immediately. The **Send** button mirrors this (its label switches to
+  Queue/Steer while busy) and is enabled exactly when Ctrl+Enter would work
+  (both use the same `_can_send()` check: connected and a session ready).
+  **Stop** sends `session/cancel` (a notification per the ACP spec — no response
+  is expected or awaited) and is only enabled while a turn is actually running.
+  Because the cancel is asynchronous — the turn ends when `prompt_finished`
+  arrives — the button switches to a busy **Stopping…** state after being
+  pressed, so it can't be spammed while a previous stop is still in flight.
 - Tool-call approvals pop a dialog (`session/request_permission`); file writes
   via `fs/write_text_file` pop a confirmation. Both are cancelled automatically
   if the agent disconnects.
@@ -109,15 +116,6 @@ godot --headless --path . -s addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests/
 
 ## TODO
 
-- **Steer while the agent is thinking** (idea from the Vibe CLI): in the CLI
-  you can type a message while the AI is working; by default it is queued for
-  after the current turn, and pressing Enter sends it immediately to steer the
-  agent's current thinking. Port this to the dock: while a turn is running,
-  accept input instead of ignoring it, queue it by default, and add a
-  shortcut (e.g. Ctrl+Enter while busy) that sends it right away — either as a
-  mid-turn `session/prompt` if vibe-acp supports it, or cancel-then-prompt.
-  Today, typed text is kept in the box while `_busy` but is not sent, and Stop
-  is the only way to interrupt a turn.
 - **Editor crash when dragging the permission dialog** (2026-11-23): moving the
   "Vibe requests permission" dialog (`permission_dialog.gd`,
   `session/request_permission`) by its titlebar crashed the whole editor to
