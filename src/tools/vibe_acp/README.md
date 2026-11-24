@@ -109,15 +109,6 @@ godot --headless --path . -s addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests/
 
 ## TODO
 
-- **Steer while the agent is thinking** (idea from the Vibe CLI): in the CLI
-  you can type a message while the AI is working; by default it is queued for
-  after the current turn, and pressing Enter sends it immediately to steer the
-  agent's current thinking. Port this to the dock: while a turn is running,
-  accept input instead of ignoring it, queue it by default, and add a
-  shortcut (e.g. Ctrl+Enter while busy) that sends it right away — either as a
-  mid-turn `session/prompt` if vibe-acp supports it, or cancel-then-prompt.
-  Today, typed text is kept in the box while `_busy` but is not sent, and Stop
-  is the only way to interrupt a turn.
 - **Editor crash when dragging the permission dialog** (2026-11-23): moving the
   "Vibe requests permission" dialog (`permission_dialog.gd`,
   `session/request_permission`) by its titlebar crashed the whole editor to
