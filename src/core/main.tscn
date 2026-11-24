@@ -44,3 +44,17 @@ rotation = Vector3(-1.0472, 0, 0)
 current = true
 
 [node name="Player" parent="." instance=ExtResource("2_player")]
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="FPSLabel" type="Label" parent="UI"]
+offset_left = 8.0
+offset_top = 6.0
+offset_right = 128.0
+offset_bottom = 29.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.8)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.9)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 14
+text = "FPS"
