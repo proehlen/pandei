@@ -149,12 +149,6 @@ func _build_ui() -> void:
 	_session_option.fit_to_longest_item = false
 	_session_option.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_session_option.tooltip_text = "Resume a previous ACP session"
-	# add_item() auto-selects the first (latest) session after clear(), and by
-	# default OptionButton swallows a re-click on the already-selected item
-	# (_select() early-returns unless allow_reselect is set). While a new
-	# session is active the preselected latest session must stay pickable,
-	# both after editor start and after the New button (same code path).
-	_session_option.allow_reselect = true
 	_session_option.item_selected.connect(func(i: int) -> void:
 		if client != null and i >= 0 and i < _session_option.item_count:
 			var sid := str(_session_option.get_item_metadata(i))
@@ -563,6 +557,7 @@ func _populate_modes(modes: Variant) -> void:
 
 func _on_sessions_listed(sessions: Array) -> void:
 	_session_option.clear()
+	var current_idx := -1
 	for s in sessions:
 		if s is Dictionary:
 			var sid := str(s.get("sessionId", ""))
@@ -571,8 +566,14 @@ func _on_sessions_listed(sessions: Array) -> void:
 				label += " — " + str(s["title"])
 			_session_option.add_item(label)
 			_session_option.set_item_metadata(_session_option.item_count - 1, sid)
-			if sid == client.session_id if client != null else false:
-				_session_option.select(_session_option.item_count - 1)
+			if client != null and sid == client.session_id:
+				current_idx = _session_option.item_count - 1
+	# add_item() auto-selects the first (latest) item after clear(); override that
+	# so the selection always mirrors the current session — blank while the current
+	# session is not in the list yet (a fresh session is not persisted by vibe-acp
+	# until its first prompt, e.g. right after editor start or the New button).
+	# select() does not emit item_selected, so this never triggers a load.
+	_session_option.select(current_idx)
 
 func _on_prompt_finished(_sid: String, result: Variant, error: Variant) -> void:
 	_busy = false

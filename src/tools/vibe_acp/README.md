@@ -28,11 +28,12 @@ browser auth.
 - **Connect / disconnect** — Connect is hidden while connected (auto-connect is
   on); a small ✕ button disconnects and kills the agent process.
 - **Session dropdown** — populated automatically (`session/list`); pick one to
-  resume it (`session/load`). The latest session is pre-selected (the first
-  `add_item()` after a refresh), and it stays pickable even while a new session
-  is active (`allow_reselect`): re-clicking the pre-selected entry resumes it —
-  both after editor start and after **New**. **List/refresh** re-queries.
-  **New** starts a fresh session and clears the transcript.
+  resume it (`session/load`). The selection always mirrors the current session:
+  it shows the current session's entry when that session appears in the list,
+  and stays **blank** while the current session is not listed yet (a fresh
+  session is not persisted by vibe-acp until its first prompt — right after
+  editor start or **New**). **List/refresh** re-queries. **New** starts a fresh
+  session and clears the transcript.
 - **Startup session** — on editor start the dock opens a **new** session by
   default (no auto-resume), so quitting the editor mid-turn can never make the
   agent silently pick up an abandoned task on the next start. Resume a previous
