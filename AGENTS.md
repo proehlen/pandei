@@ -18,6 +18,10 @@
 - **Banned File Types for AI Creation/Modification:**
   - Never create, edit, or delete `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, `.ase`, `.aseprite`, `.wav`, `.ogg`, `.mp3`, `.flac`, `.ttf`, `.otf`, `.glb`, `.gltf`, `.fbx`, `.obj`, `.blend`, or `.gdshader` files.
 
+## Documentation (READMEs)
+- `README.md` at the project root documents the **game** (controls, project layout, running, testing, asset policy).
+- `src/tools/vibe_acp/README.md` documents the **Vibe ACP editor tool** (usage, architecture, settings, TODOs). `addons/vibe_acp/` contains only the `plugin.cfg` shim pointing into `src/tools/vibe_acp/`.
+
 ## Placeholder Visuals Policy (2D & 3D)
 When prototyping scenes or entities before human assets exist in `assets_quarantine/`:
 - **Allowed 2D Placeholders:** Standard UI/2D nodes (`ColorRect`, `Polygon2D`, `Line2D`, `Label`) and `CollisionShape2D` with built-in `Shape2D` resources.
