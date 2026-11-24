@@ -149,6 +149,12 @@ func _build_ui() -> void:
 	_session_option.fit_to_longest_item = false
 	_session_option.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_session_option.tooltip_text = "Resume a previous ACP session"
+	# add_item() auto-selects the first (latest) session after clear(), and by
+	# default OptionButton swallows a re-click on the already-selected item
+	# (_select() early-returns unless allow_reselect is set). While a new
+	# session is active the preselected latest session must stay pickable,
+	# both after editor start and after the New button (same code path).
+	_session_option.allow_reselect = true
 	_session_option.item_selected.connect(func(i: int) -> void:
 		if client != null and i >= 0 and i < _session_option.item_count:
 			var sid := str(_session_option.get_item_metadata(i))

@@ -28,8 +28,11 @@ browser auth.
 - **Connect / disconnect** — Connect is hidden while connected (auto-connect is
   on); a small ✕ button disconnects and kills the agent process.
 - **Session dropdown** — populated automatically (`session/list`); pick one to
-  resume it (`session/load`). **List/refresh** re-queries. **New** starts a
-  fresh session and clears the transcript.
+  resume it (`session/load`). The latest session is pre-selected (the first
+  `add_item()` after a refresh), and it stays pickable even while a new session
+  is active (`allow_reselect`): re-clicking the pre-selected entry resumes it —
+  both after editor start and after **New**. **List/refresh** re-queries.
+  **New** starts a fresh session and clears the transcript.
 - **Startup session** — on editor start the dock opens a **new** session by
   default (no auto-resume), so quitting the editor mid-turn can never make the
   agent silently pick up an abandoned task on the next start. Resume a previous
@@ -125,14 +128,6 @@ godot --headless --path . -s addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests/
   `/var/lib/systemd/coredump/` empty, no journal entries). Next step: reproduce
   with a debug/self-compiled build and symbolize the offsets with `addr2line` to
   get real frames; until fixed, don't drag the dialog — answer it in place.
-- **Sessions dropdown pre-selects the previous session**: on starting Godot
-  (and possibly also when starting a New session via the panel button —
-  needs checking), the Sessions OptionButton has the previous session
-  selected by default, making it impossible to select a different session
-  without first selecting an even earlier one. Likely culprit:
-  `_on_sessions_listed()` in `vibe_dock.gd` auto-selects the item whose
-  metadata equals `client.session_id` after `list_sessions()`.
-
 ## Known limitations
 
 - **No history replay after resume**: `session/load` does not resend past
