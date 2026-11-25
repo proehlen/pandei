@@ -1,8 +1,9 @@
-[gd_scene format=3 uid="uid://hrivwuodo7hp"]
+[gd_scene load_steps=9 format=3 uid="uid://hrivwuodo7hp"]
 
 [ext_resource type="Script" uid="uid://g61uc65ds0v6" path="res://src/core/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://src/entities/player/player.tscn" id="2_player"]
 [ext_resource type="PackedScene" path="res://src/entities/enemy/enemy.tscn" id="3_enemy"]
+[ext_resource type="PackedScene" path="res://src/entities/weapon/short_sword.tscn" id="4_sword"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
 size = Vector3(50, 1, 50)
@@ -45,6 +46,9 @@ current = true
 
 [node name="Enemy" parent="." unique_id=1773868760 instance=ExtResource("3_enemy")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, 6)
+
+[node name="ShortSword" parent="." instance=ExtResource("4_sword")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0, 2)
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=1987041156]
 
