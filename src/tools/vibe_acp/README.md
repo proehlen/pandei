@@ -56,7 +56,9 @@ browser auth.
   a name dialog (OK/Cancel), the connection/session state, the turn state
   (`working…` / `stopping…` / `idle`) and the token usage (`used/size tok`,
   plus the plan and monthly allowance from the `account/read` extension —
-  e.g. `· PAYG API 15%`, what the vibe CLI status bar shows as "PAYG 15%").
+  e.g. `· Pro · usage █      15% · PAYG`, the same block bar the vibe CLI
+  footer shows; the budget part is absent when the active model/plan has
+  no billing data).
   `account/read` hits the billing API, so it is sent once when a session
   becomes ready and afterwards at most once a minute, and only when a
   `usage_update` showed real token use in that window — an idle session

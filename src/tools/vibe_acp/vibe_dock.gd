@@ -59,6 +59,7 @@ var _tool_calls_by_id: Dictionary = {}  # toolCallId -> tool_call/update seen, t
 # account/read hits the agent's billing API, so the dock polls it at most once
 # per ACCOUNT_POLL_INTERVAL_SEC and only when tokens were used in that window.
 const ACCOUNT_POLL_INTERVAL_SEC := 60.0
+const USAGE_BAR_CELLS := 7  # width of the block bar, matching the vibe CLI footer ("usage █      15% · PAYG")
 var _account_timer: Timer
 var _last_usage_change_ms := 0  # Time.get_ticks_msec() of the last usage_update; 0 = no use seen yet
 var _account_poll_in_flight := false
@@ -262,7 +263,7 @@ func _build_status_bar() -> void:
 	_turn_label = _make_status_label(70)
 	_status_bar.add_child(_turn_label)
 	var turn_sep := _add_status_sep()
-	_usage_label = _make_status_label(90)
+	_usage_label = _make_status_label(150)  # room for "usage █      15% · PAYG" before ellipsizing
 	_status_bar.add_child(_usage_label)
 	_status_sections = [_branch_option, _status_label, _turn_label, _usage_label]
 	_status_seps = [_branch_sep, status_sep, turn_sep]
@@ -821,18 +822,26 @@ func _on_account_read(result: Dictionary, error: Variant) -> void:
 	var label := str(plan.get("title", "")) if plan is Dictionary else ""
 	if label == "" and plan is Dictionary:
 		label = str(plan.get("name", ""))
-	var pct_text := ""
+	var usage_part := ""
 	var tooltip := label
 	if budget is Dictionary and budget.has("usage_percentage"):
-		var pct := int(round(float(budget["usage_percentage"])))
-		pct_text = " %d%%" % pct
+		var pct := clampf(float(budget["usage_percentage"]), 0.0, 100.0)
+		# block bar like the vibe CLI footer: "usage █      15% · PAYG"
+		var filled := int(pct / 100.0 * USAGE_BAR_CELLS)
+		var bar := "█".repeat(filled) + " ".repeat(USAGE_BAR_CELLS - filled)
+		usage_part = "usage %s%d%%" % [bar, int(round(pct))]
+		if bool(budget.get("payg_enabled", false)):
+			usage_part += " · PAYG"
 		var reset := str(budget.get("reset_at", ""))
-		tooltip = "monthly allowance %d%% used%s" % [pct, " — resets " + reset if reset != "" else ""]
-		if label == "" and bool(budget.get("payg_enabled", false)):
-			label = "PAYG"
-	if label == "" and pct_text == "":
+		tooltip = "monthly allowance %d%% used%s" % [int(round(pct)), " — resets " + reset if reset != "" else ""]
+	var parts: Array[String] = []
+	if label != "":
+		parts.append(label)
+	if usage_part != "":
+		parts.append(usage_part)
+	if parts.is_empty():
 		return  # neither plan nor budget (e.g. self-hosted platform): nothing to show
-	_budget_text = (label + pct_text).strip_edges()
+	_budget_text = " · ".join(parts)
 	_usage_label.tooltip_text = tooltip
 	_refresh_usage_label()
 

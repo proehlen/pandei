@@ -175,22 +175,23 @@ func test_account_read_response_appends_plan_and_budget_to_usage_label() -> void
 		"plan": {"kind": "pro", "name": "pro", "title": "PAYG API"},
 		"budget": {"usage_percentage": 15.4, "reset_at": "2026-02-01", "payg_enabled": true},
 	}, null)
-	assert_that(dock._budget_text).is_equal("PAYG API 15%")
-	assert_that(dock._usage_label.text).is_equal("1234/200000 tok · PAYG API 15%")
+	# CLI-footer format: 7-cell bar (15% -> 1 filled cell) + pct + PAYG marker
+	assert_that(dock._budget_text).is_equal("PAYG API · usage █      15% · PAYG")
+	assert_that(dock._usage_label.text).is_equal("1234/200000 tok · PAYG API · usage █      15% · PAYG")
 	assert_that(dock._usage_label.tooltip_text).contains("resets 2026-02-01")
 	assert_that(dock._account_poll_in_flight).is_false()
 	f["dock"].free()
 
 
-func test_account_read_budget_without_plan_title_falls_back_to_payg_flag() -> void:
+func test_account_read_budget_without_plan_title_shows_usage_bar() -> void:
 	var f := _make_dock()
 	var dock: VibeAcpDock = f["dock"]
 	_ready_session(f)
 	dock._on_account_read({"budget": {"usage_percentage": 7.0, "payg_enabled": true}}, null)
-	assert_that(dock._budget_text).is_equal("PAYG 7%")
-	dock._on_account_read({"budget": {"usage_percentage": 8.0, "payg_enabled": false}}, null)
-	assert_that(dock._budget_text).is_equal("8%")
-	assert_that(dock._usage_label.text).is_equal("8%")  # no tokens yet -> budget only
+	assert_that(dock._budget_text).is_equal("usage " + " ".repeat(7) + "7% · PAYG")  # 0 of 7 cells filled
+	dock._on_account_read({"budget": {"usage_percentage": 80.0, "payg_enabled": false}}, null)
+	assert_that(dock._budget_text).is_equal("usage " + "█".repeat(5) + " ".repeat(2) + "80%")  # 5 of 7 cells, no PAYG
+	assert_that(dock._usage_label.text).is_equal(dock._budget_text)  # no tokens yet -> budget only
 	f["dock"].free()
 
 
@@ -200,7 +201,7 @@ func test_account_read_error_keeps_last_good_budget() -> void:
 	_ready_session(f)
 	dock._on_account_read({"plan": {"title": "PAYG API"}, "budget": {"usage_percentage": 15.0}}, null)
 	dock._on_account_read({}, {"code": -32000, "message": "no billing here"})
-	assert_that(dock._budget_text).is_equal("PAYG API 15%")
+	assert_that(dock._budget_text).is_equal("PAYG API · usage █      15%")
 	assert_that(dock._account_poll_in_flight).is_false()
 	f["dock"].free()
 
