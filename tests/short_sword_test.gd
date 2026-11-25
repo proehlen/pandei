@@ -19,12 +19,15 @@ func test_bob_offset_never_exceeds_amplitude() -> void:
 		assert_that(absf(ShortSword.bob_offset(t, amplitude, speed)) <= amplitude + 0.0001).is_true()
 
 
-func test_short_sword_scene_has_tracked_placeholder_parts_with_primitive_meshes() -> void:
+func test_short_sword_scene_has_tracked_placeholder_parts_under_a_pivot() -> void:
 	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
 	assert_that(packed).is_not_null()
 	var sword: ShortSword = auto_free(packed.instantiate())
+	var pivot: Node = sword.get_node_or_null("Placeholder_SwordPivot")
+	assert_that(pivot).is_not_null()
+	assert_that(pivot.is_in_group("ai_placeholder")).is_true()
 	for part_name in ["Placeholder_Blade", "Placeholder_Guard", "Placeholder_Handle"]:
-		var part: Node = sword.get_node_or_null(part_name)
+		var part: Node = pivot.get_node_or_null(part_name)
 		assert_that(part).is_not_null()
 		assert_that(part.is_in_group("ai_placeholder")).is_true()
 		assert_that(part is MeshInstance3D).is_true()
@@ -32,8 +35,39 @@ func test_short_sword_scene_has_tracked_placeholder_parts_with_primitive_meshes(
 		assert_that(mesh is BoxMesh or mesh is CylinderMesh).is_true() # built-in primitives only
 		var material := (part as MeshInstance3D).get_active_material(0) as StandardMaterial3D
 		assert_that(material).is_not_null()
-	var handle: Node3D = sword.get_node("Placeholder_Handle")
+	# the blade's own rotation stays identity; pose changes live in code, not the scene
+	var blade := pivot.get_node("Placeholder_Blade") as Node3D
+	assert_that(blade.rotation.is_zero_approx()).is_true()
+	var handle := pivot.get_node("Placeholder_Handle") as Node3D
 	assert_that(absf(handle.rotation.z - PI / 2.0) < 0.001).is_true() # handle lies along the blade
+
+
+func test_loot_basis_stands_blade_upright_with_slight_diagonal_lean() -> void:
+	var blade_dir := (ShortSword.loot_basis(0.4) * Vector3.RIGHT).normalized()
+	assert_that(blade_dir.y > 0.9).is_true() # blade points mostly straight up
+	assert_that(absf(blade_dir.y - cos(0.4)) < 0.001).is_true()
+	assert_that(absf(Vector2(blade_dir.x, blade_dir.z).length() - sin(0.4)) < 0.001).is_true() # leaning by exactly the tilt
+
+
+func test_loot_basis_rolls_blade_so_its_edge_runs_horizontally() -> void:
+	var thin_axis := (ShortSword.loot_basis(0.4) * Vector3.UP).normalized() # blade's thin dimension
+	assert_that(absf(thin_axis.y) < 0.001).is_true() # no vertical component: edge horizontal
+
+
+func test_equipped_basis_points_blade_up_and_forward_without_roll() -> void:
+	var basis := ShortSword.equipped_basis(0.35)
+	var blade_dir := (basis * Vector3.RIGHT).normalized()
+	assert_that(blade_dir.y > 0.9).is_true() # blade up in the hand
+	assert_that(blade_dir.z > 0.0).is_true() # leaning toward the holder's facing direction
+	var thin_axis := (basis * Vector3.UP).normalized()
+	assert_that(absf(thin_axis.y) < 0.001).is_true() # edge horizontal, blade not twisted
+
+
+func test_spin_around_vertical_keeps_constant_lean() -> void:
+	for spin in [0.0, 1.0, 2.5, 4.0, 5.9]:
+		var blade_dir := (Basis(Vector3.UP, spin) * ShortSword.loot_basis(0.4) * Vector3.RIGHT).normalized()
+		assert_that(absf(blade_dir.y - cos(0.4)) < 0.001).is_true()
+		assert_that(absf(Vector2(blade_dir.x, blade_dir.z).length() - sin(0.4)) < 0.001).is_true()
 
 
 func test_ready_pins_sword_to_hover_height() -> void:
@@ -41,6 +75,16 @@ func test_ready_pins_sword_to_hover_height() -> void:
 	add_child(sword) # triggers _ready
 	assert_that(absf(sword.position.y - sword.hover_height) < 0.0001).is_true()
 	assert_that(sword.position.y > 0.5).is_true() # floating above the ground, not resting on it
+
+
+func test_ready_applies_loot_pose_to_pivot() -> void:
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	add_child(sword) # triggers _ready
+	var pivot := sword.get_node("Placeholder_SwordPivot") as Node3D
+	var blade_dir := (pivot.transform.basis * Vector3.RIGHT).normalized()
+	assert_that(blade_dir.y > 0.9).is_true() # standing upright, not lying flat
+	assert_that(absf(blade_dir.y - cos(sword.tilt_angle)) < 0.001).is_true()
 
 
 func test_process_advances_bob_phase_consistently() -> void:
@@ -73,29 +117,6 @@ func test_sword_bobs_up_and_down_within_amplitude_over_a_full_period() -> void:
 	assert_that(sword.hover_height - min_y <= sword.bob_amplitude + 0.0001).is_true()
 
 
-func test_sword_rotation_stands_blade_upright_with_slight_diagonal_lean() -> void:
-	var blade_dir := (Basis.from_euler(ShortSword.sword_rotation(0.0, 0.4)) * Vector3.RIGHT).normalized()
-	assert_that(blade_dir.y > 0.9).is_true() # blade points mostly straight up
-	assert_that(absf(blade_dir.y - cos(0.4)) < 0.001).is_true()
-	var lean := Vector2(blade_dir.x, blade_dir.z).length()
-	assert_that(absf(lean - sin(0.4)) < 0.001).is_true() # leaning off vertical by exactly the tilt
-
-
-func test_sword_rotation_spin_keeps_constant_lean_around_vertical() -> void:
-	for spin in [0.0, 1.0, 2.5, 4.0, 5.9]:
-		var blade_dir := (Basis.from_euler(ShortSword.sword_rotation(spin, 0.4)) * Vector3.RIGHT).normalized()
-		assert_that(absf(blade_dir.y - cos(0.4)) < 0.001).is_true() # spinning does not change the lean
-		assert_that(absf(Vector2(blade_dir.x, blade_dir.z).length() - sin(0.4)) < 0.001).is_true()
-
-
-func test_ready_stands_sword_upright_and_tilted() -> void:
-	var sword: ShortSword = auto_free(ShortSword.new())
-	add_child(sword) # triggers _ready
-	var blade_dir := (sword.transform.basis * Vector3.RIGHT).normalized()
-	assert_that(blade_dir.y > 0.9).is_true() # vertical, not lying flat
-	assert_that(absf(blade_dir.y - cos(sword.tilt_angle)) < 0.001).is_true()
-
-
 func test_process_spins_sword_slowly_around_vertical_keeping_lean() -> void:
 	var sword: ShortSword = auto_free(ShortSword.new())
 	sword.set_process(false) # tests step _process manually
@@ -105,7 +126,8 @@ func test_process_spins_sword_slowly_around_vertical_keeping_lean() -> void:
 	var steps := 120
 	for i in steps: # one full revolution
 		sword._process(period / steps)
-		var blade := (sword.transform.basis * Vector3.RIGHT).normalized()
+		assert_that(absf(sword.rotation.y - sword._spin_time * sword.spin_speed) < 0.0001).is_true()
+		var blade := (sword.transform.basis * ShortSword.loot_basis(sword.tilt_angle) * Vector3.RIGHT).normalized()
 		assert_that(absf(blade.y - cos(sword.tilt_angle)) < 0.001).is_true() # constant lean off vertical
 		directions[blade] = true
 	assert_that(directions.size() > steps / 2).is_true() # actually spinning, not static
@@ -142,6 +164,7 @@ func test_player_walking_over_sword_picks_it_up_and_equips_it() -> void:
 	assert_that(absf(sword.position.x - sword.equipped_position.x) < 0.0001).is_true()
 	assert_that(absf(sword.position.y - sword.equipped_position.y) < 0.0001).is_true()
 	assert_that(absf(sword.position.z - sword.equipped_position.z) < 0.0001).is_true()
+	assert_that(sword.rotation.is_zero_approx()).is_true()
 
 
 func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_forward() -> void:
@@ -158,10 +181,13 @@ func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_for
 	var grip := sword.position
 	assert_that(grip.y > 0.8 and grip.y < 1.3).is_true()
 	assert_that(Vector2(grip.x, grip.z).length() > 0.4).is_true()
-	# blade points up and leans slightly toward the holder's facing direction (+Z)
-	var blade := (sword.transform.basis * Vector3.RIGHT).normalized()
+	# blade points up and leans toward the holder's facing direction (+Z), edge horizontal
+	var blade_node := sword.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
+	var blade := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
 	assert_that(blade.y > 0.9).is_true()
 	assert_that(blade.z > 0.0).is_true()
+	var thin_axis := (blade_node.global_transform.basis * Vector3.UP).normalized()
+	assert_that(absf(thin_axis.y) < 0.001).is_true() # no roll about the blade's long axis in the hand
 	# bobbing and spinning stop once equipped
 	var pos_before := sword.position
 	var basis_before := sword.transform.basis
@@ -182,7 +208,8 @@ func test_main_scene_places_short_sword_a_short_distance_from_floating_player() 
 	var distance := (player as Node3D).global_position.distance_to((sword as Node3D).global_position)
 	assert_that(distance > 1.0 and distance < 8.0).is_true() # a short distance away, not on top of the player
 	assert_that(absf(sword.position.y - (sword as ShortSword).hover_height) < 0.0001).is_true() # floating in the air
-	var blade_dir := ((sword as Node3D).global_transform.basis * Vector3.RIGHT).normalized()
+	var blade_node := sword.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
+	var blade_dir := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
 	assert_that(blade_dir.y > 0.9).is_true() # standing upright with a slight diagonal lean
 
 
@@ -200,5 +227,8 @@ func test_main_scene_player_walks_over_sword_and_equips_it() -> void:
 	var sword_body := sword as ShortSword
 	assert_that(sword_body.equipped).is_true()
 	assert_that(sword_body.get_parent()).is_equal(player)
-	var blade := (sword_body.transform.basis * Vector3.RIGHT).normalized()
+	var blade_node := sword_body.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
+	var blade := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
 	assert_that(blade.y > 0.9).is_true() # equipped blade points up, ready for combat
+	var thin_axis := (blade_node.global_transform.basis * Vector3.UP).normalized()
+	assert_that(absf(thin_axis.y) < 0.01).is_true() # edge horizontal in the hand, not twisted
