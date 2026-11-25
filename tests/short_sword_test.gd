@@ -111,6 +111,65 @@ func test_process_spins_sword_slowly_around_vertical_keeping_lean() -> void:
 	assert_that(directions.size() > steps / 2).is_true() # actually spinning, not static
 
 
+func test_is_within_pickup_boundary() -> void:
+	var sword_pos := Vector3(3, 1.2, 2)
+	assert_that(ShortSword.is_within_pickup(sword_pos, sword_pos, 0.0)).is_true()
+	assert_that(ShortSword.is_within_pickup(sword_pos, Vector3(3, 0, 2), 1.5)).is_true() # 1.2 m directly below
+	assert_that(ShortSword.is_within_pickup(sword_pos, Vector3(3, 0, 2), 1.1)).is_false()
+	assert_that(ShortSword.is_within_pickup(sword_pos, Vector3(4, 1.2, 2), 1.0)).is_true() # exactly at radius
+	assert_that(ShortSword.is_within_pickup(sword_pos, Vector3(4.1, 1.2, 2), 1.0)).is_false()
+
+
+func test_player_walking_over_sword_picks_it_up_and_equips_it() -> void:
+	var player: Player = auto_free(Player.new())
+	player.add_to_group("player")
+	add_child(player)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_physics_process(false) # tests step _physics_process manually
+	sword.set_process(false)
+	add_child(sword)
+	sword.global_position = Vector3(3, 1.2, 2)
+	player.global_position = Vector3(20, 0, 15) # far away: no pickup
+	sword._physics_process(1.0 / 60.0)
+	assert_that(sword.equipped).is_false()
+	assert_that(sword.get_parent()).is_not_equal(player)
+	player.global_position = Vector3(3, 0, 2.5) # walked over the sword: 1.3 m away, within the 1.5 m radius
+	sword._physics_process(1.0 / 60.0)
+	assert_that(sword.equipped).is_true()
+	assert_that(sword.holder).is_equal(player)
+	assert_that(sword.get_parent()).is_equal(player)
+	assert_that(absf(sword.position.x - sword.equipped_position.x) < 0.0001).is_true()
+	assert_that(absf(sword.position.y - sword.equipped_position.y) < 0.0001).is_true()
+	assert_that(absf(sword.position.z - sword.equipped_position.z) < 0.0001).is_true()
+
+
+func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_forward() -> void:
+	var player: Player = auto_free(Player.new())
+	player.add_to_group("player")
+	add_child(player)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(player)
+	# hilt (sword origin) at hand height beside the body, outside the 0.4 m capsule radius
+	var grip := sword.position
+	assert_that(grip.y > 0.8 and grip.y < 1.3).is_true()
+	assert_that(Vector2(grip.x, grip.z).length() > 0.4).is_true()
+	# blade points up and leans slightly toward the holder's facing direction (+Z)
+	var blade := (sword.transform.basis * Vector3.RIGHT).normalized()
+	assert_that(blade.y > 0.9).is_true()
+	assert_that(blade.z > 0.0).is_true()
+	# bobbing and spinning stop once equipped
+	var pos_before := sword.position
+	var basis_before := sword.transform.basis
+	sword._process(0.5)
+	assert_that(sword.position).is_equal(pos_before)
+	assert_that(sword.transform.basis).is_equal(basis_before)
+
+
 func test_main_scene_places_short_sword_a_short_distance_from_floating_player() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())
@@ -125,3 +184,21 @@ func test_main_scene_places_short_sword_a_short_distance_from_floating_player() 
 	assert_that(absf(sword.position.y - (sword as ShortSword).hover_height) < 0.0001).is_true() # floating in the air
 	var blade_dir := ((sword as Node3D).global_transform.basis * Vector3.RIGHT).normalized()
 	assert_that(blade_dir.y > 0.9).is_true() # standing upright with a slight diagonal lean
+
+
+func test_main_scene_player_walks_over_sword_and_equips_it() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	var player: Node = main.get_node("Player")
+	var sword: Node = main.get_node("ShortSword")
+	await get_tree().physics_frame
+	assert_that((sword as ShortSword).equipped).is_false() # starts on the map, out of reach
+	player.global_position = (sword as Node3D).global_position # walk onto the sword
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var sword_body := sword as ShortSword
+	assert_that(sword_body.equipped).is_true()
+	assert_that(sword_body.get_parent()).is_equal(player)
+	var blade := (sword_body.transform.basis * Vector3.RIGHT).normalized()
+	assert_that(blade.y > 0.9).is_true() # equipped blade points up, ready for combat
