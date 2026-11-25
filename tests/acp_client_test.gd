@@ -182,7 +182,7 @@ func test_read_account_sends_account_read_with_session_id() -> void:
 	client.read_account()
 	var sent: Array = f["transport"].written
 	assert_that(sent).has_size(1)
-	assert_that(sent[0]["method"]).is_equal("account/read")
+	assert_that(sent[0]["method"]).is_equal("_/account/read")
 	assert_that(sent[0]["params"]["sessionId"]).is_equal("sess-1")
 
 	f["transport"].inbox.append({"jsonrpc": "2.0", "id": sent[0]["id"],
