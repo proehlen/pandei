@@ -220,6 +220,47 @@ func test_main_scene_places_short_sword_a_short_distance_from_floating_player() 
 	assert_that(blade_dir.y > 0.9).is_true() # standing upright with a slight diagonal lean
 
 
+func test_hand_pose_basis_is_identity_while_button_held_and_grip_pose_otherwise() -> void:
+	assert_that(ShortSword.hand_pose_basis(true, 0.35).is_equal_approx(Basis.IDENTITY)).is_true()
+	assert_that(ShortSword.hand_pose_basis(false, 0.35).is_equal_approx(ShortSword.equipped_basis(0.35))).is_true()
+
+
+func test_held_attack_button_resets_hand_rotation_and_release_restores_grip_pose() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	add_child(player)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(player)
+	var hand := player.get_node("Hand") as Node3D
+	var blade_node := sword.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
+	# grip pose applied at equip
+	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true()
+	# while the button is held the hand's rotation is reset to zero
+	sword._update_hand_pose(true)
+	assert_that(hand.basis.is_equal_approx(Basis.IDENTITY)).is_true()
+	assert_that(sword.transform.is_equal_approx(Transform3D.IDENTITY)).is_true() # the sword itself is untouched
+	var blade_held := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
+	assert_that(absf(blade_held.y) < 0.001).is_true() # blade lies flat along the holder's +X
+	# on release the equipped grip pose comes back
+	sword._update_hand_pose(false)
+	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true()
+	var blade := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
+	assert_that(blade.y > 0.9).is_true() # blade up again
+
+
+func test_update_hand_pose_does_nothing_before_equip() -> void:
+	var sword: ShortSword = auto_free(ShortSword.new())
+	sword.set_process(false)
+	add_child(sword)
+	sword._update_hand_pose(true) # no holder yet: must not crash
+	assert_that(sword.equipped).is_false()
+
+
 func test_main_scene_player_walks_over_sword_and_equips_it() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())

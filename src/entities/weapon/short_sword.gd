@@ -56,6 +56,15 @@ static func equipped_basis(forward_lean: float) -> Basis:
 	return Basis(Vector3(1, 0, 0), forward_lean) * Basis(Vector3(0, 0, 1), PI / 2.0)
 
 
+## Basis for the holder's Hand node: while the attack button is held the
+## rotation is reset to zero (the design-time pose); otherwise the equipped
+## grip pose applies. Pure function so it stays unit-testable.
+static func hand_pose_basis(button_held: bool, forward_lean: float) -> Basis:
+	if button_held:
+		return Basis.IDENTITY
+	return equipped_basis(forward_lean)
+
+
 ## True when `to` lies within `radius` meters of `from`. Pure function so it stays unit-testable.
 static func is_within_pickup(from: Vector3, to: Vector3, radius: float) -> bool:
 	return from.distance_to(to) <= radius
@@ -71,11 +80,23 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	if equipped:
+		_update_hand_pose(Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT))
 		return
 	_bob_time += delta
 	_spin_time += delta
 	position.y = hover_height + bob_offset(_bob_time, bob_amplitude, bob_speed)
 	rotation = Vector3(0.0, _spin_time * spin_speed, 0.0) # slow spin around the vertical axis
+
+
+## Keeps the holder's Hand node in the pose for the current button state: the
+## grip pose normally, reset to zero rotation while the attack button is held.
+func _update_hand_pose(button_held: bool) -> void:
+	if holder == null or not is_instance_valid(holder):
+		return
+	var hand := holder.get_node_or_null("Hand") as Node3D
+	if hand == null:
+		return
+	hand.basis = hand_pose_basis(button_held, equipped_lean)
 
 
 func _physics_process(_delta: float) -> void:
