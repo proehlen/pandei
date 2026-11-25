@@ -147,13 +147,14 @@ func authenticate(method_id: String) -> void:
 ## plan (name/title, e.g. "PAYG API") and budget (usage_percentage, reset_at,
 ## payg_enabled) read from the billing API. Needs a live session id; on
 ## self-hosted platforms the billing fields may be absent.
-## Wire name is "_/account/read": the ACP router only forwards methods with a
-## leading "_" to the agent's ext_method (and strips it), so a bare
-## "account/read" is answered with -32601 "Method not found".
+## Wire name is "_account/read": the ACP router only forwards methods with a
+## leading "_" to the agent's ext_method and strips exactly that one "_", so a
+## bare "account/read" gets -32601 "Method not found" and "_/account/read"
+## arrives as "/account/read" (-32601 "Method not implemented").
 func read_account() -> void:
 	if session_id.is_empty():
 		return
-	_send_request("_/account/read", {"sessionId": session_id},
+	_send_request("_account/read", {"sessionId": session_id},
 		func(result: Variant, error: Variant) -> void:
 			if error == null and result is Dictionary:
 				account_read.emit(result, null)

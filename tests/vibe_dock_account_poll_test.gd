@@ -63,7 +63,7 @@ func _ready_session(f: Dictionary) -> void:
 	f["client"].session_id = "sid-abc123"
 	f["dock"]._on_session_ready("sid-abc123", {})
 	for m in f["transport"].written:
-		if m.get("method", "") == "_/account/read":
+		if m.get("method", "") == "_account/read":
 			# answer with a valid but plan/budget-less AccountView (self-hosted
 			# platform shape): clears the in-flight flag without setting a label
 			f["transport"].inbox.append({"jsonrpc": "2.0", "id": m["id"], "result": {"status": "ok"}})
@@ -98,7 +98,7 @@ func test_should_poll_account_pure_logic() -> void:
 func test_session_ready_sends_exactly_one_initial_account_read() -> void:
 	var f := _make_dock()
 	_ready_session(f)
-	assert_that(_count_method(f["transport"], "_/account/read")).is_equal(1)
+	assert_that(_count_method(f["transport"], "_account/read")).is_equal(1)
 	assert_that(f["dock"]._account_poll_in_flight).is_false()  # answered above
 	f["dock"].free()
 
@@ -109,7 +109,7 @@ func test_poll_tick_without_any_use_sends_nothing() -> void:
 	_ready_session(f)  # sends the initial read; _last_usage_change_ms stays 0
 	dock._on_account_poll_tick()
 	dock._on_account_poll_tick()
-	assert_that(_count_method(f["transport"], "_/account/read")).is_equal(1)
+	assert_that(_count_method(f["transport"], "_account/read")).is_equal(1)
 	f["dock"].free()
 
 
@@ -119,7 +119,7 @@ func test_poll_tick_after_recent_use_sends_one_more_request() -> void:
 	_ready_session(f)
 	_send_usage(dock, 1234, 200000)  # marks _last_usage_change_ms = now
 	dock._on_account_poll_tick()
-	assert_that(_count_method(f["transport"], "_/account/read")).is_equal(2)
+	assert_that(_count_method(f["transport"], "_account/read")).is_equal(2)
 	f["dock"].free()
 
 
@@ -130,7 +130,7 @@ func test_poll_tick_with_stale_use_sends_nothing() -> void:
 	_send_usage(dock, 1234, 200000)
 	dock._last_usage_change_ms = Time.get_ticks_msec() - 61_000  # older than the interval
 	dock._on_account_poll_tick()
-	assert_that(_count_method(f["transport"], "_/account/read")).is_equal(1)
+	assert_that(_count_method(f["transport"], "_account/read")).is_equal(1)
 	f["dock"].free()
 
 
@@ -141,7 +141,7 @@ func test_poll_in_flight_is_not_duplicated() -> void:
 	_send_usage(dock, 100, 200000)
 	dock._on_account_poll_tick()  # sends, stays in flight until the answer arrives
 	dock._on_account_poll_tick()  # must not send a second one
-	assert_that(_count_method(f["transport"], "_/account/read")).is_equal(2)
+	assert_that(_count_method(f["transport"], "_account/read")).is_equal(2)
 	assert_that(dock._account_poll_in_flight).is_true()
 	f["dock"].free()
 
@@ -151,7 +151,7 @@ func test_poll_tick_without_session_sends_nothing() -> void:
 	var dock: VibeAcpDock = f["dock"]
 	dock._last_usage_change_ms = Time.get_ticks_msec()  # use, but no session/connection
 	dock._on_account_poll_tick()
-	assert_that(_count_method(f["transport"], "_/account/read")).is_equal(0)
+	assert_that(_count_method(f["transport"], "_account/read")).is_equal(0)
 	f["dock"].free()
 
 
@@ -260,5 +260,5 @@ func test_disconnect_clears_usage_and_budget_and_stops_polling() -> void:
 	dock._last_usage_change_ms = Time.get_ticks_msec()  # even forced, no session -> no call
 	f["client"].session_id = ""
 	dock._on_account_poll_tick()
-	assert_that(_count_method(f["transport"], "_/account/read")).is_equal(1)
+	assert_that(_count_method(f["transport"], "_account/read")).is_equal(1)
 	f["dock"].free()
