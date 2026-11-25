@@ -38,7 +38,7 @@ func test_enemy_scene_has_red_placeholder_body() -> void:
 	assert_that(material.albedo_color.b < 0.3).is_true()
 
 
-func test_main_scene_places_enemy_25_units_from_player_and_syncs_speed() -> void:
+func test_main_scene_places_enemy_at_its_design_position_and_syncs_speed() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())
 	add_child(main) # triggers _ready, which syncs the enemy speed to the player's
@@ -48,9 +48,11 @@ func test_main_scene_places_enemy_25_units_from_player_and_syncs_speed() -> void
 	assert_that(player).is_not_null()
 	assert_that(enemy).is_not_null()
 	assert_that(player.is_in_group("player")).is_true()
-	assert_that(absf(player.global_position.distance_to(enemy.global_position) - 25.0) < 0.001).is_true()
+	# placed at (7, 0, 6) in main.tscn: sqrt(7^2 + 6^2) ~ 9.22 m from the player at the origin
+	assert_that((enemy as Node3D).position).is_equal(Vector3(7, 0, 6))
+	assert_that(absf(player.global_position.distance_to(enemy.global_position) - sqrt(85.0)) < 0.001).is_true()
 	var enemy_body := enemy as Enemy
-	assert_that(enemy_body.detection_radius).is_equal(15.0)
+	assert_that(enemy_body.detection_radius).is_equal(8.0)
 	assert_that(enemy_body.move_speed).is_equal((player as Player).move_speed)
 	assert_that(enemy_body.target).is_equal(player)
 
@@ -74,8 +76,8 @@ func test_compute_chase_velocity_matches_detection_radius() -> void:
 	enemy.target = target
 	enemy.global_position = Vector3(20, 0, 15)
 	target.global_position = Vector3.ZERO
-	assert_that(enemy.compute_chase_velocity()).is_equal(Vector3.ZERO) # 25 m > 15 m radius
-	target.global_position = Vector3(20, 0, 5) # 10 m away
+	assert_that(enemy.compute_chase_velocity()).is_equal(Vector3.ZERO) # 25 m > 8 m default radius
+	target.global_position = Vector3(20, 0, 10) # 5 m away: inside the 8 m default radius
 	var chase: Vector3 = enemy.compute_chase_velocity()
 	assert_that(absf(chase.length() - enemy.move_speed) < 0.0001).is_true()
 	assert_that(chase.z < 0.0 and absf(chase.x) < 0.0001).is_true() # straight toward the target
@@ -90,7 +92,7 @@ func test_enemy_stays_idle_outside_radius_and_chases_inside_it_at_player_speed()
 	enemy.target = player
 	enemy.move_speed = player.move_speed
 	add_child(enemy)
-	enemy.global_position = Vector3(20, 0, 15) # 25 m away: outside the 15 m radius
+	enemy.global_position = Vector3(20, 0, 15) # 25 m away: outside the 8 m default radius
 	enemy._physics_process(1.0 / 60.0)
 	assert_that(Vector3(enemy.velocity.x, 0.0, enemy.velocity.z)).is_equal(Vector3.ZERO)
 	player.global_position = Vector3(18, 0, 15) # 2 m away: inside the radius
