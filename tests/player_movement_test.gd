@@ -60,6 +60,22 @@ func test_main_scene_scaffolds_ground_player_and_camera() -> void:
 	assert_that(camera.current).is_true()
 
 
+func test_player_scene_has_a_hand_node_with_a_tracked_placeholder_sphere() -> void:
+	var packed: PackedScene = load("res://src/entities/player/player.tscn")
+	assert_that(packed).is_not_null()
+	var player: Player = auto_free(packed.instantiate())
+	var hand := player.get_node_or_null("Hand") as Node3D
+	assert_that(hand).is_not_null()
+	assert_that(hand.position.y > 0.8 and hand.position.y < 1.3).is_true() # at hand height
+	assert_that(Vector2(hand.position.x, hand.position.z).length() > 0.4).is_true() # beside the body, outside the 0.4 m capsule radius
+	var sphere := hand.get_node_or_null("Placeholder_Hand") as MeshInstance3D
+	assert_that(sphere).is_not_null()
+	assert_that(sphere.is_in_group("ai_placeholder")).is_true()
+	assert_that(sphere.mesh is SphereMesh).is_true() # built-in primitive only
+	var material := sphere.get_active_material(0) as StandardMaterial3D
+	assert_that(material).is_not_null()
+
+
 func test_camera_follows_player_position_with_fixed_orientation() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())

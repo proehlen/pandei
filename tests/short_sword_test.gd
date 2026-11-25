@@ -143,7 +143,8 @@ func test_is_within_pickup_boundary() -> void:
 
 
 func test_player_walking_over_sword_picks_it_up_and_equips_it() -> void:
-	var player: Player = auto_free(Player.new())
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
 	player.add_to_group("player")
 	add_child(player)
 	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
@@ -158,17 +159,16 @@ func test_player_walking_over_sword_picks_it_up_and_equips_it() -> void:
 	assert_that(sword.get_parent()).is_not_equal(player)
 	player.global_position = Vector3(3, 0, 2.5) # walked over the sword: 1.3 m away, within the 1.5 m radius
 	sword._physics_process(1.0 / 60.0)
+	var hand := player.get_node("Hand") as Node3D
 	assert_that(sword.equipped).is_true()
 	assert_that(sword.holder).is_equal(player)
-	assert_that(sword.get_parent()).is_equal(player)
-	assert_that(absf(sword.position.x - sword.equipped_position.x) < 0.0001).is_true()
-	assert_that(absf(sword.position.y - sword.equipped_position.y) < 0.0001).is_true()
-	assert_that(absf(sword.position.z - sword.equipped_position.z) < 0.0001).is_true()
-	assert_that(sword.rotation.is_zero_approx()).is_true()
+	assert_that(sword.get_parent()).is_equal(hand) # attached to the hand, not the body
+	assert_that(sword.transform.is_equal_approx(Transform3D.IDENTITY)).is_true() # hilt sits at the hand origin
 
 
 func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_forward() -> void:
-	var player: Player = auto_free(Player.new())
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
 	player.add_to_group("player")
 	add_child(player)
 	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
@@ -177,8 +177,15 @@ func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_for
 	sword.set_physics_process(false)
 	add_child(sword)
 	sword.equip(player)
-	# hilt (sword origin) at hand height beside the body, outside the 0.4 m capsule radius
-	var grip := sword.position
+	# the hand carries the attach point and the grip pose; the sword hangs off it untouched
+	var hand := player.get_node("Hand") as Node3D
+	assert_that(sword.get_parent()).is_equal(hand)
+	assert_that(sword.transform.is_equal_approx(Transform3D.IDENTITY)).is_true()
+	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true()
+	var pivot := sword.get_node("Placeholder_SwordPivot") as Node3D
+	assert_that(pivot.basis.is_equal_approx(Basis.IDENTITY)).is_true() # the sword pivot no longer takes the grip pose
+	# hilt (hand origin) at hand height beside the body, outside the 0.4 m capsule radius
+	var grip := hand.position
 	assert_that(grip.y > 0.8 and grip.y < 1.3).is_true()
 	assert_that(Vector2(grip.x, grip.z).length() > 0.4).is_true()
 	# blade points up and leans toward the holder's facing direction (+Z), edge horizontal
@@ -226,7 +233,7 @@ func test_main_scene_player_walks_over_sword_and_equips_it() -> void:
 	await get_tree().physics_frame
 	var sword_body := sword as ShortSword
 	assert_that(sword_body.equipped).is_true()
-	assert_that(sword_body.get_parent()).is_equal(player)
+	assert_that(sword_body.get_parent()).is_equal(player.get_node("Hand")) # equipped on the hand
 	var blade_node := sword_body.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
 	var blade := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
 	assert_that(blade.y > 0.9).is_true() # equipped blade points up, ready for combat
