@@ -53,14 +53,25 @@ browser auth.
   a git checkout; refreshed every second, so switching branches in a terminal
   shows up live) as a dropdown — pick another local branch to `git checkout`
   it, or the trailing **New…** entry to create and switch to a new branch via
-  a name dialog (OK/Cancel), the connection/session state, the turn state
-  (`working…` / `stopping…` / `idle`) and the token usage. Sections without
+  a name dialog (OK/Cancel), the connection/session state, the active **model**
+  (the `model` session config option from `configOptions`, refreshed by
+  `config_option_update`), the turn state
+  (`working…` / `stopping…` / `idle`) and the token usage (`used/size tok`,
+  plus the plan and monthly allowance from the `account/read` extension —
+  e.g. `· Pro · usage █      15% · PAYG`, the same block bar the vibe CLI
+  footer shows; the budget part is absent when the active model/plan has
+  no billing data).
+  `account/read` hits the billing API, so it is sent once when a session
+  becomes ready and afterwards at most once a minute, and only when a
+  `usage_update` showed real token use in that window — an idle session
+  never triggers a call. Sections without
   text are hidden and exactly one bar separates consecutive visible sections.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
   `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
   the editor. Long lines wrap.
-- **Input** — Ctrl/Cmd+Enter sends. The **Send** button is enabled exactly
+- **Input** — long prompts wrap inside the multi-line box. Ctrl/Cmd+Enter
+  sends. The **Send** button is enabled exactly
   when Ctrl+Enter would work (both use the same `_can_send()` check: connected,
   a session is ready, and no turn is running). **Stop** sends
   `session/cancel` (a notification per the ACP spec — no response is expected

@@ -171,3 +171,46 @@ func test_set_mode_and_config_option() -> void:
 	assert_that(sent[0]["method"]).is_equal("session/set_mode")
 	assert_that(sent[0]["params"]["modeId"]).is_equal("auto-approve")
 	assert_that(sent[1]["method"]).is_equal("session/set_config_option")
+
+func test_read_account_sends_account_read_with_session_id() -> void:
+	var f := _make_client()
+	var client: AcpClient = f["client"]
+	client.session_id = "sess-1"
+	var got: Array = []
+	client.account_read.connect(func(r: Dictionary, e: Variant) -> void: got.append([r, e]))
+
+	client.read_account()
+	var sent: Array = f["transport"].written
+	assert_that(sent).has_size(1)
+	assert_that(sent[0]["method"]).is_equal("_account/read")
+	assert_that(sent[0]["params"]["sessionId"]).is_equal("sess-1")
+
+	f["transport"].inbox.append({"jsonrpc": "2.0", "id": sent[0]["id"],
+		"result": {"status": "ok", "plan": {"kind": "pro", "name": "pro", "title": "PAYG API"},
+			"budget": {"usage_percentage": 15.0, "reset_at": "2026-02-01", "payg_enabled": true}}})
+	client.pump()
+	assert_that(got).has_size(1)
+	assert_that(got[0][1]).is_null()
+	assert_that(got[0][0]["budget"]["usage_percentage"]).is_equal(15.0)
+	assert_that(got[0][0]["plan"]["title"]).is_equal("PAYG API")
+
+func test_read_account_without_session_sends_nothing() -> void:
+	var f := _make_client()
+	var client: AcpClient = f["client"]
+	client.read_account()
+	assert_that(f["transport"].written).is_empty()
+
+func test_read_account_error_emits_error_and_empty_result() -> void:
+	var f := _make_client()
+	var client: AcpClient = f["client"]
+	client.session_id = "sess-1"
+	var got: Array = []
+	client.account_read.connect(func(r: Dictionary, e: Variant) -> void: got.append([r, e]))
+	client.read_account()
+	var sent: Array = f["transport"].written
+	f["transport"].inbox.append({"jsonrpc": "2.0", "id": sent[0]["id"],
+		"error": {"code": -32000, "message": "no billing on this platform"}})
+	client.pump()
+	assert_that(got).has_size(1)
+	assert_that(got[0][0]).is_empty()
+	assert_that(str(got[0][1]["message"])).is_equal("no billing on this platform")
