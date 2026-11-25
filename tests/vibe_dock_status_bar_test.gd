@@ -24,7 +24,7 @@ func _make_dock() -> VibeAcpDock:
 
 
 func _status_controls(dock: VibeAcpDock) -> Array[Control]:
-	return [dock._branch_option, dock._status_label, dock._turn_label, dock._usage_label]
+	return [dock._branch_option, dock._status_label, dock._model_label, dock._turn_label, dock._usage_label]
 
 
 func _selected_branch_text(dock: VibeAcpDock) -> String:
@@ -79,27 +79,31 @@ func test_separators_appear_between_all_visible_sections() -> void:
 	var dock := _make_dock()
 	dock._project_root = _mktemp_repo("ref: refs/heads/main\n", ["main", "feat/x"])
 	dock._refresh_branch()
-	# four sections, three separators; turn/usage empty -> hidden, one bar only
-	assert_that(dock._status_seps.size()).is_equal(3)
+	# five sections, four separators; model/turn/usage empty -> hidden, one bar only
+	assert_that(dock._status_seps.size()).is_equal(4)
 	assert_that(dock._status_seps[0] == dock._branch_sep).is_true()
 	assert_that(dock._branch_option.item_count).is_equal(4)  # feat/x, main, separator, New…
 	assert_that(_selected_branch_text(dock)).is_equal("main")
 	assert_that(dock._branch_option.visible).is_true()
 	assert_that(dock._status_label.visible).is_true()
-	assert_that(dock._turn_label.visible).is_false()   # empty labels take no space
+	assert_that(dock._model_label.visible).is_false()  # empty labels take no space
+	assert_that(dock._turn_label.visible).is_false()
 	assert_that(dock._usage_label.visible).is_false()
 	assert_that(dock._status_seps[0].visible).is_true()
 	assert_that(dock._status_seps[1].visible).is_false()
 	assert_that(dock._status_seps[2].visible).is_false()
-	# usage arrives while turn is still empty (the reported case): exactly one
-	# bar between session and usage — not zero, not a doubled bar
+	assert_that(dock._status_seps[3].visible).is_false()
+	# usage arrives while model/turn are still empty (the reported case): exactly
+	# one bar between session and usage — not zero, not a doubled bar
 	dock._usage_label.text = "0/400000 tok"
 	dock._sync_status_bar()
 	assert_that(dock._usage_label.visible).is_true()
 	assert_that(dock._status_seps[0].visible).is_true()
 	assert_that(dock._status_seps[1].visible).is_true()
-	assert_that(dock._status_seps[2].visible).is_false()  # turn still empty
-	# turn appears too -> all three bars
+	assert_that(dock._status_seps[2].visible).is_false()  # model still empty
+	assert_that(dock._status_seps[3].visible).is_false()  # turn still empty
+	# model and turn appear too -> all four bars
+	dock._model_label.text = "Devstral Small"
 	dock._turn_label.text = "working…"
 	dock._sync_status_bar()
 	for sep in dock._status_seps:
@@ -112,6 +116,7 @@ func test_separators_appear_between_all_visible_sections() -> void:
 	assert_that(dock._status_seps[0].visible).is_false()
 	assert_that(dock._status_seps[1].visible).is_true()
 	assert_that(dock._status_seps[2].visible).is_true()
+	assert_that(dock._status_seps[3].visible).is_true()
 	dock.free()
 
 
@@ -235,12 +240,13 @@ func test_status_labels_get_real_allocated_width_in_tree() -> void:
 	await get_tree().process_frame
 	# _ready() ran _refresh_branch() and this repo is a git checkout
 	assert_that(_selected_branch_text(dock)).is_not_empty()
+	dock._model_label.text = "Devstral Small"
 	dock._turn_label.text = "working…"
 	dock._usage_label.text = "12/100 tok"
 	dock._sync_status_bar()
 	await get_tree().process_frame
 	for c in _status_controls(dock):
-		assert_that(c.visible).is_true()  # all four sections have content now
+		assert_that(c.visible).is_true()  # all five sections have content now
 		assert_that(c.custom_minimum_size.x).is_greater(20.0)
 		assert_that(c.size_flags_horizontal & Control.SIZE_EXPAND_FILL).is_not_equal(0)
 		assert_that(c.get_combined_minimum_size().x).is_greater(20.0)

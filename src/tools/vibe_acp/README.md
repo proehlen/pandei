@@ -53,7 +53,9 @@ browser auth.
   a git checkout; refreshed every second, so switching branches in a terminal
   shows up live) as a dropdown — pick another local branch to `git checkout`
   it, or the trailing **New…** entry to create and switch to a new branch via
-  a name dialog (OK/Cancel), the connection/session state, the turn state
+  a name dialog (OK/Cancel), the connection/session state, the active **model**
+  (the `model` session config option from `configOptions`, refreshed by
+  `config_option_update`), the turn state
   (`working…` / `stopping…` / `idle`) and the token usage (`used/size tok`,
   plus the plan and monthly allowance from the `account/read` extension —
   e.g. `· Pro · usage █      15% · PAYG`, the same block bar the vibe CLI

@@ -31,6 +31,7 @@ var _connect_btn: Button
 var _disconnect_btn: Button
 var _title_label: Label
 var _status_label: Label
+var _model_label: Label
 var _turn_label: Label
 var _usage_label: Label
 var _branch_option: OptionButton
@@ -67,6 +68,7 @@ var _used_tokens := -1  # -1 = no usage_update yet (label shows budget only, if 
 var _context_size := 0
 var _budget_text := ""  # e.g. "PAYG API 15%", appended to the usage label
 var _account_error_logged := false  # log an account/read failure only once per session
+var _model_name := ""  # active model display name, from the "model" config option
 
 # Metadata sentinel for the "New…" entry at the bottom of the branch dropdown.
 # An int on purpose: real branch items always carry a String (the branch name,
@@ -260,13 +262,17 @@ func _build_status_bar() -> void:
 	_status_label.text = "disconnected"
 	_status_bar.add_child(_status_label)
 	var status_sep := _add_status_sep()
+	_model_label = _make_status_label(110)
+	_model_label.tooltip_text = "Active model (the \"model\" session config option; changes come via config_option_update)"
+	_status_bar.add_child(_model_label)
+	var model_sep := _add_status_sep()
 	_turn_label = _make_status_label(70)
 	_status_bar.add_child(_turn_label)
 	var turn_sep := _add_status_sep()
 	_usage_label = _make_status_label(150)  # room for "usage █      15% · PAYG" before ellipsizing
 	_status_bar.add_child(_usage_label)
-	_status_sections = [_branch_option, _status_label, _turn_label, _usage_label]
-	_status_seps = [_branch_sep, status_sep, turn_sep]
+	_status_sections = [_branch_option, _status_label, _model_label, _turn_label, _usage_label]
+	_status_seps = [_branch_sep, status_sep, model_sep, turn_sep]
 
 func _add_status_sep() -> VSeparator:
 	var sep := VSeparator.new()
@@ -603,6 +609,9 @@ func _on_session_ready(sid: String, info: Dictionary) -> void:
 	_status_label.text = "session " + sid.substr(0, 8)
 	_append_line_role(TranscriptRoles.ROLE_SYS, "session ready: " + sid)
 	_populate_modes(info.get("modes", {}))
+	# the model rides the "model" config option in configOptions (session/new|load)
+	_model_name = _model_name_from_config_options(info.get("configOptions", []))
+	_refresh_model_label()
 	var stored := VibeAcpSettings.get_mode()
 	if stored != "":
 		for i in _mode_option.item_count:
@@ -754,6 +763,12 @@ func _render_update(_sid: String, update: Dictionary) -> void:
 					var t := str(update.get("title", ""))
 					if t != "":
 						_title_label.text = "Mistral Vibe — " + t
+				"config_option_update":
+					# the model (or mode) config changed server-side (e.g. /model)
+					var name := _model_name_from_config_options(update.get("configOptions", []))
+					if name != "":
+						_model_name = name
+						_refresh_model_label()
 				"plan":
 					for entry in update.get("entries", []):
 						_append_line_role(TranscriptRoles.ROLE_TOOL, "plan [%s] %s" % [str(entry.get("status", "?")), str(entry.get("content", ""))])
@@ -773,6 +788,27 @@ func _content_text(update: Dictionary) -> String:
 	return str(c.get("text", "")) if c is Dictionary else ""
 
 # ---------------------------------------------------------------- account/budget
+
+## Display name of the active model from a config-options list (the
+## "configOptions" of a session/new|load response or a config_option_update):
+## the "model" option's currentValue, resolved to its option "name" if present.
+## Pure, so tests can drive it without a session.
+static func _model_name_from_config_options(options: Variant) -> String:
+	if not (options is Array):
+		return ""
+	for opt in options:
+		if opt is Dictionary and str(opt.get("id", "")) == "model":
+			var current := str(opt.get("currentValue", ""))
+			for o in opt.get("options", []):
+				if o is Dictionary and str(o.get("value", "")) == current:
+					var name := str(o.get("name", ""))
+					if name != "":
+						return name
+			return current
+	return ""
+
+func _refresh_model_label() -> void:
+	_model_label.text = _model_name
 
 ## Compose the usage section: "12345/200000 tok · PAYG API 15%" (either part
 ## may be absent; the status-bar sync hides the section when both are empty).
@@ -989,6 +1025,8 @@ func _update_connection_ui(open: bool) -> void:
 	_status_label.text = "connected" if open else "disconnected"
 	if not open:
 		_turn_label.text = ""
+		_model_name = ""
+		_refresh_model_label()
 		_used_tokens = -1
 		_context_size = 0
 		_budget_text = ""
