@@ -65,6 +65,7 @@ var _account_poll_in_flight := false
 var _used_tokens := -1  # -1 = no usage_update yet (label shows budget only, if any)
 var _context_size := 0
 var _budget_text := ""  # e.g. "PAYG API 15%", appended to the usage label
+var _account_error_logged := false  # log an account/read failure only once per session
 
 # Metadata sentinel for the "New…" entry at the bottom of the branch dropdown.
 # An int on purpose: real branch items always carry a String (the branch name,
@@ -616,6 +617,7 @@ func _on_session_ready(sid: String, info: Dictionary) -> void:
 	_context_size = 0
 	_budget_text = ""
 	_last_usage_change_ms = 0
+	_account_error_logged = false
 	_refresh_usage_label()
 	_request_account_read()
 	# session_id just became non-empty: re-evaluate the Send/Stop buttons
@@ -803,23 +805,35 @@ func _request_account_read() -> void:
 
 ## account/read answer (vibe extension): AccountView with plan + budget. The
 ## budget is the monthly Vibe Code allowance (usage_percentage, payg_enabled) —
-## what the CLI status bar shows as "PAYG 15%". Errors are silent: the billing
-## endpoints are optional on self-hosted platforms, and the last good value stays.
+## what the CLI status bar shows as "PAYG 15%". The plan title alone ("PAYG API")
+## is shown too when there is no budget. On error the last good value stays;
+## the failure is logged to the transcript once per session so a missing label
+## is diagnosable (billing endpoints are optional on self-hosted platforms).
 func _on_account_read(result: Dictionary, error: Variant) -> void:
 	_account_poll_in_flight = false
 	if error != null or result.is_empty():
+		if not _account_error_logged:
+			_account_error_logged = true
+			_append_line_role(TranscriptRoles.ROLE_SYS, "account/read failed: %s" % AcpClient._fmt_error(error))
 		return
-	var budget: Variant = result.get("budget", {})
-	if not (budget is Dictionary) or not budget.has("usage_percentage"):
-		return
-	var pct := int(round(float(budget["usage_percentage"])))
 	var plan: Variant = result.get("plan", {})
+	var budget: Variant = result.get("budget", {})
 	var label := str(plan.get("title", "")) if plan is Dictionary else ""
-	if label == "" and bool(budget.get("payg_enabled", false)):
-		label = "PAYG"
-	_budget_text = ("%s %d%%" % [label, pct]).strip_edges() if label != "" else "%d%%" % pct
-	var reset := str(budget.get("reset_at", ""))
-	_usage_label.tooltip_text = "monthly allowance %d%% used%s" % [pct, " — resets " + reset if reset != "" else ""]
+	if label == "" and plan is Dictionary:
+		label = str(plan.get("name", ""))
+	var pct_text := ""
+	var tooltip := label
+	if budget is Dictionary and budget.has("usage_percentage"):
+		var pct := int(round(float(budget["usage_percentage"])))
+		pct_text = " %d%%" % pct
+		var reset := str(budget.get("reset_at", ""))
+		tooltip = "monthly allowance %d%% used%s" % [pct, " — resets " + reset if reset != "" else ""]
+		if label == "" and bool(budget.get("payg_enabled", false)):
+			label = "PAYG"
+	if label == "" and pct_text == "":
+		return  # neither plan nor budget (e.g. self-hosted platform): nothing to show
+	_budget_text = (label + pct_text).strip_edges()
+	_usage_label.tooltip_text = tooltip
 	_refresh_usage_label()
 
 ## Tool line with clickable file:line links (push_meta works with bbcode off).
@@ -971,6 +985,7 @@ func _update_connection_ui(open: bool) -> void:
 		_budget_text = ""
 		_last_usage_change_ms = 0
 		_account_poll_in_flight = false
+		_account_error_logged = false
 		_refresh_usage_label()
 	_update_send_state()
 

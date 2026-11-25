@@ -64,7 +64,9 @@ func _ready_session(f: Dictionary) -> void:
 	f["dock"]._on_session_ready("sid-abc123", {})
 	for m in f["transport"].written:
 		if m.get("method", "") == "account/read":
-			f["transport"].inbox.append({"jsonrpc": "2.0", "id": m["id"], "result": {}})
+			# answer with a valid but plan/budget-less AccountView (self-hosted
+			# platform shape): clears the in-flight flag without setting a label
+			f["transport"].inbox.append({"jsonrpc": "2.0", "id": m["id"], "result": {"status": "ok"}})
 	f["client"].pump()
 
 
@@ -75,6 +77,7 @@ func _send_usage(dock: VibeAcpDock, used: int, size: int) -> void:
 func after_test() -> void:
 	VibeAcpSettings.set_last_session("")
 	VibeAcpSettings.set_last_session_busy(false)
+	VibeAcpSettings.set_auto_connect(true)  # the error-log test disables it to enter the tree
 
 
 func test_should_poll_account_pure_logic() -> void:
@@ -207,10 +210,40 @@ func test_account_read_without_budget_changes_nothing() -> void:
 	var dock: VibeAcpDock = f["dock"]
 	_ready_session(f)
 	_send_usage(dock, 50, 200000)
-	dock._on_account_read({"status": "ok"}, null)  # self-hosted platform: no budget key
+	dock._on_account_read({"status": "ok"}, null)  # self-hosted platform: no plan/budget keys
 	assert_that(dock._budget_text).is_empty()
 	assert_that(dock._usage_label.text).is_equal("50/200000 tok")
 	f["dock"].free()
+
+
+func test_account_read_plan_without_budget_still_shows_plan_title() -> void:
+	var f := _make_dock()
+	var dock: VibeAcpDock = f["dock"]
+	_ready_session(f)
+	# budget needs the see_org_inference_usage permission and can be absent;
+	# the plan title (what the CLI renders as "PAYG API") must still show
+	dock._on_account_read({"plan": {"kind": "pro", "name": "pro", "title": "PAYG API"}}, null)
+	assert_that(dock._budget_text).is_equal("PAYG API")
+	assert_that(dock._usage_label.text).is_equal("PAYG API")
+	f["dock"].free()
+
+
+func test_account_read_error_logs_to_transcript_once_per_session() -> void:
+	# enter the tree (with auto-connect off) so the RichTextLabel actually parses
+	VibeAcpSettings.set_auto_connect(false)
+	var f := _make_dock()
+	var dock: VibeAcpDock = f["dock"]
+	add_child(dock)
+	await get_tree().process_frame
+	_ready_session(f)
+	var err := {"code": -32000, "message": "no billing here"}
+	dock._on_account_read({}, err)
+	dock._on_account_read({}, err)  # second failure must not spam the transcript
+	var parsed := dock._transcript.get_parsed_text()
+	assert_that(parsed.split("account/read failed").size() - 1).is_equal(1)
+	assert_that(parsed).contains("no billing here")
+	assert_that(dock._account_poll_in_flight).is_false()
+	dock.queue_free()
 
 
 func test_disconnect_clears_usage_and_budget_and_stops_polling() -> void:
