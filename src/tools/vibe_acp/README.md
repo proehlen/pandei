@@ -60,7 +60,8 @@ browser auth.
   `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
   the editor. Long lines wrap.
-- **Input** — Ctrl/Cmd+Enter sends. The **Send** button is enabled exactly
+- **Input** — long prompts wrap inside the multi-line box. Ctrl/Cmd+Enter
+  sends. The **Send** button is enabled exactly
   when Ctrl+Enter would work (both use the same `_can_send()` check: connected,
   a session is ready, and no turn is running). **Stop** sends
   `session/cancel` (a notification per the ACP spec — no response is expected

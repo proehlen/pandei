@@ -202,6 +202,7 @@ func _build_ui() -> void:
 	_input = TextEdit.new()
 	_input.custom_minimum_size = Vector2(0, 64)
 	_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_input.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY  # wrap long prompts instead of clipping them at the box edge
 	_input.placeholder_text = "Ask Vibe… (Ctrl+Enter to send)"
 	_input.gui_input.connect(_on_input_gui_input)
 	_input_row.add_child(_input)

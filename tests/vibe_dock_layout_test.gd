@@ -41,3 +41,12 @@ func test_header_is_a_wrapping_flow_container() -> void:
 	assert_that(header is HFlowContainer).is_true()
 	assert_that(header.get_combined_minimum_size().x).is_less(250.0)
 	dock.queue_free()
+
+func test_input_wraps_long_lines() -> void:
+	var dock := VibeAcpDock.new()
+	add_child(dock)
+	await get_tree().process_frame
+	# TextEdit defaults to LINE_WRAPPING_NONE, which clips a long prompt at the
+	# box edge; the multi-line input must wrap so typed text stays visible.
+	assert_that(dock._input.wrap_mode).is_equal(TextEdit.LINE_WRAPPING_BOUNDARY)
+	dock.queue_free()
