@@ -6,7 +6,7 @@ extends Node3D
 ## Fixed world-space orientation of the camera (top-down pitch, no yaw).
 ## The camera deliberately does NOT rotate with the player, so movement can be
 ## tested independent of the view. Camera rotation via keys can be added later.
-@export var camera_rotation: Vector3 = Vector3(-1.0472, 0, 0)
+@export var camera_rotation: Vector3 = Vector3(-1.1257, 0, 0)
 ## Whether the discrete FPS counter is shown in the top-left corner.
 @export var show_fps: bool = true
 
