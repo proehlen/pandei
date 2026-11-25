@@ -73,3 +73,26 @@ func test_camera_follows_player_position_with_fixed_orientation() -> void:
 	assert_that(camera.global_position).is_equal(Vector3(3, 10.5, 4))
 	assert_that(camera.rotation).is_equal(camera_rotation)
 	assert_that(camera.rotation.y).is_equal(0.0)
+
+
+func test_ground_grid_overlays_tracked_checkerboard_placeholder_tiles() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	var grid: Node = main.get_node_or_null("Placeholder_GroundGrid")
+	assert_that(grid).is_not_null()
+	assert_that(grid.is_in_group("ai_placeholder")).is_true()
+	var tiles: Array = grid.get_children()
+	assert_that(tiles.size()).is_equal(625) # 50x50 ground covered by 2x2 tiles
+	var colors := {}
+	for tile in tiles:
+		var mesh_instance := tile as MeshInstance3D
+		assert_that(mesh_instance).is_not_null()
+		assert_that(tile.name.begins_with("Placeholder_")).is_true()
+		assert_that(tile.is_in_group("ai_placeholder")).is_true()
+		assert_that(mesh_instance.mesh is PlaneMesh).is_true()
+		assert_that(mesh_instance.position.y > 0.0).is_true() # lifted off the ground plane
+		var material := mesh_instance.material_override as StandardMaterial3D
+		assert_that(material).is_not_null()
+		colors[material.albedo_color] = true
+	assert_that(colors.size()).is_equal(2) # checkerboard uses exactly two flat colors
