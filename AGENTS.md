@@ -55,12 +55,13 @@ When prototyping scenes or entities before human assets exist in `assets_quarant
         - `main` has unpushed commits (`git rev-list --count origin/main..main` > 0 after the fetch), since pulling then could trigger a merge workflow.
      c. `git pull --ff-only`. If it cannot fast-forward, stop with a message instead of creating a merge.
      d. `git branch --merged main --delete` to remove feature branches already merged into `main`. (`-d` refuses to delete unmerged branches, so this is non-destructive; never use `-D` without explicit user permission.)
-- Pre-Task Branch Check:
+- Pre-Task Branch Check (never make changes on `main`):
   1. Run `git status` and check the active branch before making any edits.
-  2. If currently on `main` and the working tree is completely clean (`git status --porcelain` is empty), automatically create and check out a new semantic feature branch before editing files:
+  2. If currently on `main`, stop: make no edits and run no Git mutations on `main`. Instead, offer to create a feature branch and propose a semantic name based on the task:
      - `feat/short-kebab-name` for new features/systems
      - `fix/short-kebab-name` for bug fixes
      - `chore/short-kebab-name` or `test/short-kebab-name` for tooling/tests
+     Create and check out the proposed branch only after the user approves it (or picks a different name).
   3. If you are on `main` and the working tree has any uncommitted changes, untracked files, staged files, or merge conflicts, or if you are already on a dirty branch with unrelated work, stop immediately and ask the user before touching Git or writing code.
 - Semantic Commits (on feature branches only):
   - Commit logical units of work on the active feature branch using Conventional Commits:
@@ -69,7 +70,8 @@ When prototyping scenes or entities before human assets exist in `assets_quarant
     - test: short description
     - refactor: short description
     - chore: short description
-- Push After Every Commit (feature branches only):
-  - Immediately after committing on a feature branch, run `git push -u origin <branch>` so the branch is created on origin and no local-only commits linger. PRs into `main` are created from GitHub, so local unpushed commits serve no purpose.
-  - If the push fails (e.g. no network, or the remote rejects it), report it clearly to the user instead of silently leaving commits unpushed.
+- Pushing to GitHub is optional and will be done by the user if he wants it:
+  - The AI never pushes and never asks whether to push. Local commits on a feature branch are a complete deliverable.
+  - If the user wants a branch on GitHub, he pushes it himself from outside the session (`git push -u origin <branch>`); PRs into `main` are created from GitHub. Do not offer or remind.
+  - The AI never pushes to `main` under any circumstances.
 - Never run destructive Git commands (`git reset --hard`, `git clean -fd`, `git push --force`) without explicit user permission.
