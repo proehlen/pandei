@@ -11,6 +11,7 @@ extends Node3D
 @export var show_fps: bool = true
 
 @onready var player: Player = $Player
+@onready var enemy: Enemy = $Enemy
 @onready var camera: Camera3D = $Camera3D
 @onready var fps_label: Label = $UI/FPSLabel
 
@@ -23,6 +24,7 @@ const GROUND_TILE_COLOR_B := Color(0.34, 0.5, 0.33)
 
 
 func _ready() -> void:
+	enemy.move_speed = player.move_speed # enemy chases at exactly the player's max speed
 	build_placeholder_ground_grid()
 
 
