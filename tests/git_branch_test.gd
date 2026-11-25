@@ -219,3 +219,46 @@ func test_switch_branch_rejects_non_repo_without_spawning_git() -> void:
 	assert_that(bool(res["ok"])).is_false()
 	assert_that(str(res["output"])).contains("not a git checkout")
 	assert_that(calls).is_empty()
+
+
+# ---------------------------------------------------------------- create_branch
+
+func test_create_branch_invokes_git_checkout_dash_b_with_root_and_branch() -> void:
+	var root := _make_repo("ref: refs/heads/main\n")
+	var calls: Array = []
+	var res := GitBranch.create_branch(root, "feat/x", _recording_runner(calls, 0, "Switched to a new branch 'feat/x'"))
+	assert_that(bool(res["ok"])).is_true()
+	assert_that(int(res["exit_code"])).is_equal(0)
+	assert_that(str(res["output"])).is_equal("Switched to a new branch 'feat/x'")
+	assert_that(str(res["branch"])).is_equal("feat/x")
+	assert_that(calls.size()).is_equal(1)
+	assert_that(str(calls[0]["exe"])).is_equal("git")
+	assert_that(calls[0]["args"]).is_equal(PackedStringArray(["-C", root, "checkout", "-b", "feat/x"]))
+
+
+func test_create_branch_propagates_failure_exit_code_and_output() -> void:
+	# e.g. the branch already exists: git checkout -b exits non-zero
+	var root := _make_repo("ref: refs/heads/main\n")
+	var calls: Array = []
+	var res := GitBranch.create_branch(root, "main", _recording_runner(calls, 128, "fatal: a branch named 'main' already exists"))
+	assert_that(bool(res["ok"])).is_false()
+	assert_that(int(res["exit_code"])).is_equal(128)
+	assert_that(str(res["output"])).contains("already exists")
+	assert_that(calls.size()).is_equal(1)
+
+
+func test_create_branch_rejects_invalid_name_without_spawning_git() -> void:
+	var root := _make_repo("ref: refs/heads/main\n")
+	var calls: Array = []
+	var res := GitBranch.create_branch(root, "a..b", _recording_runner(calls, 0, ""))
+	assert_that(bool(res["ok"])).is_false()
+	assert_that(str(res["output"])).contains("invalid branch name")
+	assert_that(calls).is_empty()
+
+
+func test_create_branch_rejects_non_repo_without_spawning_git() -> void:
+	var calls: Array = []
+	var res := GitBranch.create_branch("/nonexistent/path/xyz", "feat/x", _recording_runner(calls, 0, ""))
+	assert_that(bool(res["ok"])).is_false()
+	assert_that(str(res["output"])).contains("not a git checkout")
+	assert_that(calls).is_empty()

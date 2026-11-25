@@ -19,7 +19,8 @@ extends VBoxContainer
 ## The header carries only interactive controls (buttons, dropdowns); all
 ## status info lives in the slim status bar beneath the prompt input (smaller
 ## font + slightly darkened background, so a short, distinct row): a compact
-## git branch dropdown (pick another local branch to `git checkout` it),
+## git branch dropdown (pick another local branch to `git checkout` it, or
+## "New…" to create+switch to a new branch),
 ## connection/session state, turn state and token usage, separated by bars.
 
 var client: AcpClient = null
@@ -54,6 +55,12 @@ var _busy := false
 var _cancelling := false  # stop requested; busy until prompt_finished arrives
 var _open_dialogs: Array = []  # pending permission/fs dialogs, cancelled on disconnect
 var _tool_calls_by_id: Dictionary = {}  # toolCallId -> tool_call/update seen, to resolve permission-request hashes
+
+# Metadata sentinel for the "New…" entry at the bottom of the branch dropdown.
+# An int on purpose: real branch items always carry a String (the branch name,
+# or "" for the disabled detached-HEAD entry), so this can never collide with
+# an actual branch name.
+const NEW_BRANCH_ITEM := -1
 
 # streaming block state: one open block per messageId, closed on role change
 var _block_open := false
@@ -327,7 +334,7 @@ func _make_branch_option() -> OptionButton:
 	ob.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	ob.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ob.add_theme_font_size_override("font_size", _status_font_size)
-	ob.tooltip_text = "Current git branch of this project (res://) — pick another local branch to switch to it (git checkout)"
+	ob.tooltip_text = "Current git branch of this project (res://) — pick another local branch to switch to it (git checkout), or New… to create one"
 	ob.item_selected.connect(_on_branch_selected)
 	return ob
 
@@ -373,19 +380,31 @@ func _refresh_branch() -> void:
 		_branch_option.set_item_metadata(_branch_option.item_count - 1, b)
 		if b == current:
 			selected = _branch_option.item_count - 1
+	if current != "" or not branches.is_empty():
+		# trailing "New…" entry behind a separator: opens the create-branch
+		# dialog (int sentinel metadata — real branch items carry a String)
+		_branch_option.add_separator()
+		_branch_option.add_item("New…")
+		_branch_option.set_item_metadata(_branch_option.item_count - 1, NEW_BRANCH_ITEM)
 	if selected >= 0:
 		_branch_option.select(selected)
 	_refreshing_branch = false
 	_sync_status_bar()
 
-## User picked a branch in the dropdown: switch to it with `git checkout`.
-## On success the next _refresh_branch() (immediate + the 1s timer) selects
-## the new branch; on failure (e.g. uncommitted changes would be overwritten)
-## the error goes to the transcript and the selection snaps back to the branch
-## that is actually checked out. Picking the already-current entry (or the
-## disabled detached-HEAD entry, metadata "") is a no-op.
+## User picked an entry in the dropdown: a branch switches to it with
+## `git checkout`, the "New…" entry opens the create-branch dialog. On a
+## successful switch the next _refresh_branch() (immediate + the 1s timer)
+## selects the new branch; on failure (e.g. uncommitted changes would be
+## overwritten) the error goes to the transcript and the selection snaps back
+## to the branch that is actually checked out. Picking the already-current
+## entry (or the disabled detached-HEAD entry, metadata "") is a no-op.
 func _on_branch_selected(index: int) -> void:
 	if _refreshing_branch or index < 0 or index >= _branch_option.item_count:
+		return
+	var meta: Variant = _branch_option.get_item_metadata(index)
+	if meta is int and int(meta) == NEW_BRANCH_ITEM:
+		_refresh_branch()  # snap the selection back to the current branch
+		_prompt_new_branch()
 		return
 	var branch := str(_branch_option.get_item_metadata(index))
 	var current := GitBranch.current_branch(_project_root)
@@ -397,6 +416,40 @@ func _on_branch_selected(index: int) -> void:
 		_append_line_role(TranscriptRoles.ROLE_SYS, "switched to git branch '%s'" % branch)
 	else:
 		_append_line_role(TranscriptRoles.ROLE_ERROR, "git checkout '%s' failed (exit %d): %s" % [
+			branch, int(res.get("exit_code", -1)), str(res.get("output", "")).strip_edges()])
+	_refresh_branch()
+
+## "New…" picked in the branch dropdown: ask for a branch name, then create and
+## switch to it on OK. Cancel (or Escape / window close) just closes.
+func _prompt_new_branch() -> void:
+	var dlg := VibeNewBranchDialog.new()
+	add_child(dlg)
+	dlg.setup_dialog(GitBranch.list_branches(_project_root))
+	dlg.resolved.connect(func(branch: String, cancelled: bool) -> void:
+		if not cancelled:
+			_create_branch(branch)
+		dlg.queue_free())
+	dlg.popup_on_screen()
+
+## Create `branch` and switch to it (`git checkout -b`). Invalid names and
+## duplicates are rejected before any git call; on success the refresh selects
+## the new branch, on failure the error goes to the transcript and the
+## selection snaps back to the branch that is actually checked out.
+func _create_branch(branch: String) -> void:
+	branch = branch.strip_edges()
+	if not GitBranch.is_valid_branch_name(branch):
+		_append_line_role(TranscriptRoles.ROLE_ERROR, "invalid branch name: '%s'" % branch)
+		_refresh_branch()
+		return
+	if GitBranch.list_branches(_project_root).has(branch):
+		_append_line_role(TranscriptRoles.ROLE_ERROR, "branch '%s' already exists" % branch)
+		_refresh_branch()
+		return
+	var res := GitBranch.create_branch(_project_root, branch, _git_runner)
+	if bool(res.get("ok", false)):
+		_append_line_role(TranscriptRoles.ROLE_SYS, "created and switched to git branch '%s'" % branch)
+	else:
+		_append_line_role(TranscriptRoles.ROLE_ERROR, "git checkout -b '%s' failed (exit %d): %s" % [
 			branch, int(res.get("exit_code", -1)), str(res.get("output", "")).strip_edges()])
 	_refresh_branch()
 

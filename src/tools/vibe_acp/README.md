@@ -51,7 +51,9 @@ browser auth.
   separated by vertical bars: the current **git branch** of the project
   (`git: <branch>`, `HEAD@<sha>` when detached, hidden when the project is not
   a git checkout; refreshed every second, so switching branches in a terminal
-  shows up live), the connection/session state, the turn state
+  shows up live) as a dropdown — pick another local branch to `git checkout`
+  it, or the trailing **New…** entry to create and switch to a new branch via
+  a name dialog (OK/Cancel), the connection/session state, the turn state
   (`working…` / `stopping…` / `idle`) and the token usage. Sections without
   text are hidden and exactly one bar separates consecutive visible sections.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
@@ -78,13 +80,14 @@ src/tools/vibe_acp/
 ├── plugin.gd                   # EditorPlugin: adds/removes the dock
 ├── vibe_dock.gd                # the dock: header controls (Connect/Disconnect, New, Compact, Session and Mode dropdowns), transcript, input row, and the slim status bar (git branch dropdown, connection/session, turn state, token usage, separated by bars)
 ├── permission_dialog.gd / permission_text.gd   # permission-request dialog
+├── new_branch_dialog.gd        # "New branch" name dialog (OK/Cancel) behind the branch dropdown's New… entry
 ├── acp_client.gd               # high-level ACP ops: initialize/new/load/list/prompt/cancel/set_mode
 ├── acp_dispatcher.gd           # routes responses / notifications / server→client requests
 ├── acp_connection.gd           # poll()-based message pump, request ids
 ├── acp_codec.gd                # newline-delimited JSON-RPC framing (AcpCodec.LineBuffer)
 ├── acp_transport.gd / pipe_transport.gd  # transport iface + stdio pipe transport abstraction
 ├── acp_fs_handler.gd           # fs/read_text_file / fs/write_text_file, confined to the project root
-├── git_branch.gd               # current-branch read, local-branch listing and branch switching for the status-bar dropdown (pure .git file reads, except switch_branch(), which runs git checkout behind an injectable runner)
+├── git_branch.gd               # current-branch read, local-branch listing, branch switching and branch creation for the status-bar dropdown (pure .git file reads, except switch_branch()/create_branch(), which run git checkout behind an injectable runner)
 ├── transcript_roles.gd         # transcript role colors and prefixes (update-kind → role/prefix mapping, UI-free)
 └── vibe_acp_settings.gd        # editor settings (executable, approval mode, stored session, auto-connect/auto-resume flags)
 tests/                          # GdUnit4 suites (vibe_dock_*_test.gd, git_branch_test.gd, acp_*_test.gd, …)

@@ -82,7 +82,8 @@ func test_refresh_branch_lists_local_branches_sorted_with_current_selected() -> 
 	var texts: Array[String] = []
 	for i in dock._branch_option.item_count:
 		texts.append(dock._branch_option.get_item_text(i))
-	assert_that(texts).is_equal(["feat/a", "feat/b", "main"])
+	# branches sorted, then the separator ("" text) and the "New…" entry
+	assert_that(texts).is_equal(["feat/a", "feat/b", "main", "", "New…"])
 	assert_that(_selected_text(dock)).is_equal("main")
 	dock.free()
 

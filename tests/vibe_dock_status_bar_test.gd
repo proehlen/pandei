@@ -82,7 +82,7 @@ func test_separators_appear_between_all_visible_sections() -> void:
 	# four sections, three separators; turn/usage empty -> hidden, one bar only
 	assert_that(dock._status_seps.size()).is_equal(3)
 	assert_that(dock._status_seps[0] == dock._branch_sep).is_true()
-	assert_that(dock._branch_option.item_count).is_equal(2)
+	assert_that(dock._branch_option.item_count).is_equal(4)  # feat/x, main, separator, New…
 	assert_that(_selected_branch_text(dock)).is_equal("main")
 	assert_that(dock._branch_option.visible).is_true()
 	assert_that(dock._status_label.visible).is_true()
@@ -150,7 +150,7 @@ func test_refresh_branch_selects_branch_and_hides_when_not_a_repo() -> void:
 	dock._project_root = _mktemp_repo("ref: refs/heads/feat/test-branch\n", ["main", "feat/test-branch"])
 	dock._refresh_branch()
 	assert_that(_selected_branch_text(dock)).is_equal("feat/test-branch")
-	assert_that(dock._branch_option.item_count).is_equal(2)
+	assert_that(dock._branch_option.item_count).is_equal(4)  # 2 branches + separator + New…
 	assert_that(dock._branch_option.visible).is_true()
 	assert_that(dock._branch_sep.visible).is_true()
 	# switching branches is picked up on the next refresh
@@ -174,7 +174,7 @@ func test_detached_head_shows_short_sha_as_disabled_branch_item() -> void:
 	assert_that(dock._branch_option.is_item_disabled(dock._branch_option.selected)).is_true()
 	assert_that(str(dock._branch_option.get_item_metadata(dock._branch_option.selected))).is_equal("")
 	# the real local branch is still listed after the detached entry
-	assert_that(dock._branch_option.item_count).is_equal(2)
+	assert_that(dock._branch_option.item_count).is_equal(4)  # detached, main, separator, New…
 	assert_that(dock._branch_option.get_item_text(1)).is_equal("main")
 	dock.free()
 

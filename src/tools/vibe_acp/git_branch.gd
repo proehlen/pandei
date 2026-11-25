@@ -174,3 +174,24 @@ static func switch_branch(project_root: String, branch: String, runner: Callable
 	result.output = str(r.get("output", ""))
 	result.ok = result.exit_code == 0
 	return result
+
+## Create `branch` in project_root AND switch to it, via
+## `git -C <root> checkout -b <branch>` (one step, so the worktree never sits
+## on the old branch with the new one half-created). Same runner contract and
+## result Dictionary as switch_branch(). An existing branch name fails with
+## exit != 0 ("a branch named 'x' already exists"), which surfaces in output.
+static func create_branch(project_root: String, branch: String, runner: Callable = Callable()) -> Dictionary:
+	var result := {"ok": false, "exit_code": -1, "output": "", "branch": branch}
+	if not is_valid_branch_name(branch):
+		result.output = "invalid branch name: %s" % branch
+		return result
+	if resolve_git_dir(project_root) == "":
+		result.output = "not a git checkout: %s" % project_root
+		return result
+	var args := PackedStringArray(["-C", project_root, "checkout", "-b", branch])
+	var run := runner if runner.is_valid() else _default_git_runner
+	var r: Dictionary = run.call("git", args)
+	result.exit_code = int(r.get("exit_code", -1))
+	result.output = str(r.get("output", ""))
+	result.ok = result.exit_code == 0
+	return result
