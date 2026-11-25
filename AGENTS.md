@@ -70,8 +70,8 @@ When prototyping scenes or entities before human assets exist in `assets_quarant
     - test: short description
     - refactor: short description
     - chore: short description
-- Pushing to GitHub is optional (feature branches only):
-  - The AI does not need to push. Local commits on a feature branch are a complete deliverable; PRs into `main` are created from GitHub by the user.
-  - Push (`git push -u origin <branch>`) only when the user explicitly asks for it, and never to `main`.
-  - If a requested push fails (e.g. no network, or the remote rejects it), report it clearly to the user instead of silently leaving commits unpushed.
+- Pushing to GitHub is optional and will be done by the user if he wants it:
+  - The AI never pushes and never asks whether to push. Local commits on a feature branch are a complete deliverable.
+  - If the user wants a branch on GitHub, he pushes it himself from outside the session (`git push -u origin <branch>`); PRs into `main` are created from GitHub. Do not offer or remind.
+  - The AI never pushes to `main` under any circumstances.
 - Never run destructive Git commands (`git reset --hard`, `git clean -fd`, `git push --force`) without explicit user permission.
