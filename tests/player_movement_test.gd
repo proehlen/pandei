@@ -64,8 +64,12 @@ func test_player_scene_has_a_hand_node_with_a_tracked_placeholder_sphere() -> vo
 	var packed: PackedScene = load("res://src/entities/player/player.tscn")
 	assert_that(packed).is_not_null()
 	var player: Player = auto_free(packed.instantiate())
-	var hand := player.get_node_or_null("Hand") as Node3D
+	var hand := player.get_node_or_null("SwingPivot/Hand") as Node3D
 	assert_that(hand).is_not_null()
+	var pivot := player.get_node_or_null("SwingPivot") as Node3D
+	assert_that(pivot).is_not_null()
+	assert_that(pivot.position.is_zero_approx()).is_true() # pivot origin at the player's center
+	assert_that(hand.get_parent()).is_equal(pivot) # the hand hangs off the pivot
 	assert_that(hand.position.y > 0.8 and hand.position.y < 1.3).is_true() # at hand height
 	assert_that(Vector2(hand.position.x, hand.position.z).length() > 0.4).is_true() # beside the body, outside the 0.4 m capsule radius
 	var sphere := hand.get_node_or_null("Placeholder_Hand") as MeshInstance3D
