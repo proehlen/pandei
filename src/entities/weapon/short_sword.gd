@@ -14,11 +14,9 @@ extends Node3D
 @export var spin_speed: float = 0.6
 ## Distance in meters at which a player walking over the sword picks it up.
 @export var pickup_radius: float = 1.5
-## Local position of the sword's grip (hilt) relative to the holder when
-## equipped — beside the body at hand height, slightly forward.
-@export var equipped_position: Vector3 = Vector3(0.55, 1.05, 0.15)
 ## Forward lean of the blade in radians when equipped (+Z is the holder's
-## facing direction), as if readied for combat.
+## facing direction), as if readied for combat. Applied to the holder's Hand
+## node, which carries the grip pose while the sword is equipped.
 @export var equipped_lean: float = 0.35
 
 ## Elapsed time since the sword started bobbing.
@@ -29,8 +27,9 @@ var _spin_time: float = 0.0
 var equipped: bool = false
 ## The node holding the sword. Acquired from the "player" group when unset.
 var holder: Node3D = null
-## Child node carrying the sword's own orientation (loot pose vs. grip pose);
-## null when the script runs without the placeholder scene.
+## Child node carrying the sword's own orientation (loot pose only; the grip
+## pose is carried by the holder's Hand node when equipped); null when the
+## script runs without the placeholder scene.
 var _pivot: Node3D = null
 
 
@@ -51,8 +50,8 @@ static func loot_basis(tilt: float) -> Basis:
 
 ## Basis for the equipped grip pose: blade up, leaning `forward_lean` radians
 ## toward the holder's facing direction (+Z), with no roll about the blade's
-## long axis so it reads correctly in the hand. Pure function so it stays
-## unit-testable.
+## long axis so it reads correctly in the hand. Applied to the holder's Hand
+## node on equip. Pure function so it stays unit-testable.
 static func equipped_basis(forward_lean: float) -> Basis:
 	return Basis(Vector3(1, 0, 0), forward_lean) * Basis(Vector3(0, 0, 1), PI / 2.0)
 
@@ -93,15 +92,24 @@ func acquire_holder() -> void:
 		holder = get_tree().get_first_node_in_group("player") as Node3D
 
 
-## Attaches the sword to `new_holder` at the equipped grip pose: the hilt sits
-## where the hand would be and the blade points up, readied for combat.
+## Attaches the sword to the holder's Hand node: the hand (positioned at design
+## time in the player scene) is rotated into the equipped grip pose, and the
+## sword is parented to it with an identity local transform so the hilt sits
+## exactly at the hand. The hand — not the sword — carries the grip orientation,
+## so rotating the hand is what will drive a swing later.
 func equip(new_holder: Node3D) -> void:
 	equipped = true
 	holder = new_holder
-	reparent(new_holder)
-	position = equipped_position
-	rotation = Vector3.ZERO
+	var hand := new_holder.get_node_or_null("Hand") as Node3D
+	if hand == null:
+		push_warning("ShortSword.equip: holder has no Hand node, attaching at the holder's origin.")
+		reparent(new_holder)
+	else:
+		hand.basis = equipped_basis(equipped_lean) # the hand takes the grip pose
+		reparent(hand)
+	transform = Transform3D.IDENTITY # hilt sits exactly at the hand
 	if _pivot == null:
 		_pivot = get_node_or_null("Placeholder_SwordPivot") as Node3D
 	if _pivot != null:
-		_pivot.basis = equipped_basis(equipped_lean)
+		_pivot.basis = Basis.IDENTITY # the hand carries the grip orientation, not the sword
+
