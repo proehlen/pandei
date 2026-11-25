@@ -2,7 +2,7 @@ class_name Main
 extends Node3D
 
 ## World-space offset of the camera from the player.
-@export var camera_offset: Vector3 = Vector3(0, 14, 8)
+@export var camera_offset: Vector3 = Vector3(0, 10.5, 6)
 ## Fixed world-space orientation of the camera (top-down pitch, no yaw).
 ## The camera deliberately does NOT rotate with the player, so movement can be
 ## tested independent of the view. Camera rotation via keys can be added later.
