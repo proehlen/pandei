@@ -2,7 +2,7 @@ class_name Enemy
 extends CharacterBody3D
 
 ## Distance in meters at which the enemy spots the player and starts chasing.
-@export var detection_radius: float = 15.0
+@export var detection_radius: float = 8.0
 ## Chase speed in meters per second. main.gd syncs this to the player's
 ## move_speed so the enemy chases at exactly the player's max speed.
 @export var move_speed: float = 6.0
