@@ -1,42 +1,41 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene format=3 uid="uid://bq86q2vs0bxu"]
 
-[ext_resource type="Script" path="res://src/entities/weapon/short_sword.gd" id="1_sword"]
+[ext_resource type="Script" uid="uid://c0a58lt0xcvt8" path="res://src/entities/weapon/short_sword.gd" id="1_sword"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_blade"]
 size = Vector3(0.9, 0.06, 0.16)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_blade"]
+albedo_color = Color(0.75, 0.78, 0.85, 1)
+
 [sub_resource type="BoxMesh" id="BoxMesh_guard"]
 size = Vector3(0.08, 0.12, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_guard"]
+albedo_color = Color(0.72, 0.55, 0.2, 1)
 
 [sub_resource type="CylinderMesh" id="CylinderMesh_handle"]
 top_radius = 0.03
 bottom_radius = 0.04
 height = 0.24
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_blade"]
-albedo_color = Color(0.75, 0.78, 0.85, 1)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_guard"]
-albedo_color = Color(0.72, 0.55, 0.2, 1)
-
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_handle"]
 albedo_color = Color(0.35, 0.22, 0.12, 1)
 
-[node name="ShortSword" type="Node3D"]
+[node name="ShortSword" type="Node3D" unique_id=294472945]
 script = ExtResource("1_sword")
 
-[node name="Placeholder_Blade" type="MeshInstance3D" parent="." groups=["ai_placeholder"]]
-position = Vector3(0.55, 0, 0)
+[node name="Placeholder_Blade" type="MeshInstance3D" parent="." unique_id=1113761185 groups=["ai_placeholder"]]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 0.55, 0, 0)
 mesh = SubResource("BoxMesh_blade")
 surface_material_override/0 = SubResource("StandardMaterial3D_blade")
 
-[node name="Placeholder_Guard" type="MeshInstance3D" parent="." groups=["ai_placeholder"]]
-position = Vector3(0.08, 0, 0)
+[node name="Placeholder_Guard" type="MeshInstance3D" parent="." unique_id=1413640691 groups=["ai_placeholder"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.08, 0, 0)
 mesh = SubResource("BoxMesh_guard")
 surface_material_override/0 = SubResource("StandardMaterial3D_guard")
 
-[node name="Placeholder_Handle" type="MeshInstance3D" parent="." groups=["ai_placeholder"]]
-position = Vector3(-0.08, 0, 0)
-rotation = Vector3(0, 0, 1.5707964)
+[node name="Placeholder_Handle" type="MeshInstance3D" parent="." unique_id=1661543477 groups=["ai_placeholder"]]
+transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, -0.08, 0, 0)
 mesh = SubResource("CylinderMesh_handle")
 surface_material_override/0 = SubResource("StandardMaterial3D_handle")
