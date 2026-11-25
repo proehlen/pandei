@@ -73,6 +73,44 @@ func test_sword_bobs_up_and_down_within_amplitude_over_a_full_period() -> void:
 	assert_that(sword.hover_height - min_y <= sword.bob_amplitude + 0.0001).is_true()
 
 
+func test_sword_rotation_stands_blade_upright_with_slight_diagonal_lean() -> void:
+	var blade_dir := (Basis.from_euler(ShortSword.sword_rotation(0.0, 0.4)) * Vector3.RIGHT).normalized()
+	assert_that(blade_dir.y > 0.9).is_true() # blade points mostly straight up
+	assert_that(absf(blade_dir.y - cos(0.4)) < 0.001).is_true()
+	var lean := Vector2(blade_dir.x, blade_dir.z).length()
+	assert_that(absf(lean - sin(0.4)) < 0.001).is_true() # leaning off vertical by exactly the tilt
+
+
+func test_sword_rotation_spin_keeps_constant_lean_around_vertical() -> void:
+	for spin in [0.0, 1.0, 2.5, 4.0, 5.9]:
+		var blade_dir := (Basis.from_euler(ShortSword.sword_rotation(spin, 0.4)) * Vector3.RIGHT).normalized()
+		assert_that(absf(blade_dir.y - cos(0.4)) < 0.001).is_true() # spinning does not change the lean
+		assert_that(absf(Vector2(blade_dir.x, blade_dir.z).length() - sin(0.4)) < 0.001).is_true()
+
+
+func test_ready_stands_sword_upright_and_tilted() -> void:
+	var sword: ShortSword = auto_free(ShortSword.new())
+	add_child(sword) # triggers _ready
+	var blade_dir := (sword.transform.basis * Vector3.RIGHT).normalized()
+	assert_that(blade_dir.y > 0.9).is_true() # vertical, not lying flat
+	assert_that(absf(blade_dir.y - cos(sword.tilt_angle)) < 0.001).is_true()
+
+
+func test_process_spins_sword_slowly_around_vertical_keeping_lean() -> void:
+	var sword: ShortSword = auto_free(ShortSword.new())
+	sword.set_process(false) # tests step _process manually
+	add_child(sword)
+	var directions := {}
+	var period := TAU / sword.spin_speed
+	var steps := 120
+	for i in steps: # one full revolution
+		sword._process(period / steps)
+		var blade := (sword.transform.basis * Vector3.RIGHT).normalized()
+		assert_that(absf(blade.y - cos(sword.tilt_angle)) < 0.001).is_true() # constant lean off vertical
+		directions[blade] = true
+	assert_that(directions.size() > steps / 2).is_true() # actually spinning, not static
+
+
 func test_main_scene_places_short_sword_a_short_distance_from_floating_player() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())
@@ -85,3 +123,5 @@ func test_main_scene_places_short_sword_a_short_distance_from_floating_player() 
 	var distance := (player as Node3D).global_position.distance_to((sword as Node3D).global_position)
 	assert_that(distance > 1.0 and distance < 8.0).is_true() # a short distance away, not on top of the player
 	assert_that(absf(sword.position.y - (sword as ShortSword).hover_height) < 0.0001).is_true() # floating in the air
+	var blade_dir := ((sword as Node3D).global_transform.basis * Vector3.RIGHT).normalized()
+	assert_that(blade_dir.y > 0.9).is_true() # standing upright with a slight diagonal lean
