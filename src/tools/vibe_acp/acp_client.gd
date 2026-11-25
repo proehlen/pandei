@@ -13,6 +13,7 @@ signal session_load_failed(session_id: String, error: Variant)
 signal sessions_listed(sessions: Array)
 signal prompt_finished(session_id: String, result: Variant, error: Variant)
 signal session_update(session_id: String, update: Dictionary)
+signal account_read(result: Dictionary, error: Variant)
 signal log_line(text: String)
 
 var connection: AcpConnection
@@ -141,6 +142,20 @@ func authenticate(method_id: String) -> void:
 			else:
 				log_line.emit("authenticate failed: " + str(error))
 	)
+
+## vibe extension (not in the ACP spec): account/read returns the AccountView —
+## plan (name/title, e.g. "PAYG API") and budget (usage_percentage, reset_at,
+## payg_enabled) read from the billing API. Needs a live session id; on
+## self-hosted platforms the billing fields may be absent.
+func read_account() -> void:
+	if session_id.is_empty():
+		return
+	_send_request("account/read", {"sessionId": session_id},
+		func(result: Variant, error: Variant) -> void:
+			if error == null and result is Dictionary:
+				account_read.emit(result, null)
+			else:
+				account_read.emit({}, error))
 
 func _send_request(method: String, params: Dictionary, on_response: Callable) -> void:
 	if connection == null or not connection.is_open():

@@ -54,7 +54,13 @@ browser auth.
   shows up live) as a dropdown — pick another local branch to `git checkout`
   it, or the trailing **New…** entry to create and switch to a new branch via
   a name dialog (OK/Cancel), the connection/session state, the turn state
-  (`working…` / `stopping…` / `idle`) and the token usage. Sections without
+  (`working…` / `stopping…` / `idle`) and the token usage (`used/size tok`,
+  plus the plan and monthly allowance from the `account/read` extension —
+  e.g. `· PAYG API 15%`, what the vibe CLI status bar shows as "PAYG 15%").
+  `account/read` hits the billing API, so it is sent once when a session
+  becomes ready and afterwards at most once a minute, and only when a
+  `usage_update` showed real token use in that window — an idle session
+  never triggers a call. Sections without
   text are hidden and exactly one bar separates consecutive visible sections.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
   `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with

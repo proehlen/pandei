@@ -56,6 +56,16 @@ var _cancelling := false  # stop requested; busy until prompt_finished arrives
 var _open_dialogs: Array = []  # pending permission/fs dialogs, cancelled on disconnect
 var _tool_calls_by_id: Dictionary = {}  # toolCallId -> tool_call/update seen, to resolve permission-request hashes
 
+# account/read hits the agent's billing API, so the dock polls it at most once
+# per ACCOUNT_POLL_INTERVAL_SEC and only when tokens were used in that window.
+const ACCOUNT_POLL_INTERVAL_SEC := 60.0
+var _account_timer: Timer
+var _last_usage_change_ms := 0  # Time.get_ticks_msec() of the last usage_update; 0 = no use seen yet
+var _account_poll_in_flight := false
+var _used_tokens := -1  # -1 = no usage_update yet (label shows budget only, if any)
+var _context_size := 0
+var _budget_text := ""  # e.g. "PAYG API 15%", appended to the usage label
+
 # Metadata sentinel for the "New…" entry at the bottom of the branch dropdown.
 # An int on purpose: real branch items always carry a String (the branch name,
 # or "" for the disabled detached-HEAD entry), so this can never collide with
@@ -88,6 +98,12 @@ func _ready() -> void:
 	add_child(_branch_timer)
 	_refresh_branch()
 	_branch_timer.start()
+	# billing poll: see _on_account_poll_tick — only fires a real request after use
+	_account_timer = Timer.new()
+	_account_timer.wait_time = ACCOUNT_POLL_INTERVAL_SEC
+	_account_timer.timeout.connect(_on_account_poll_tick)
+	add_child(_account_timer)
+	_account_timer.start()
 	_append_line_role(TranscriptRoles.ROLE_SYS, "Dock ready. " +
 		("Connecting automatically…" if VibeAcpSettings.is_auto_connect() else "Press Connect to start the agent."))
 	if VibeAcpSettings.is_auto_connect():
@@ -535,6 +551,7 @@ func _wire_client() -> void:
 	client.sessions_listed.connect(_on_sessions_listed)
 	client.prompt_finished.connect(_on_prompt_finished)
 	client.session_update.connect(_render_update)
+	client.account_read.connect(_on_account_read)
 	client.log_line.connect(func(t: String) -> void: _append_line_role(TranscriptRoles.ROLE_SYS, t))
 
 	client.dispatcher.register_request_handler("session/request_permission", _on_permission_request)
@@ -592,6 +609,15 @@ func _on_session_ready(sid: String, info: Dictionary) -> void:
 				client.set_mode(stored)
 				break
 	client.list_sessions()  # populate the session dropdown automatically
+	# fresh session: reset the usage/budget tracking and do a single account/read
+	# so the status bar shows the plan/budget right away (later polls only happen
+	# after actual use — see _on_account_poll_tick)
+	_used_tokens = -1
+	_context_size = 0
+	_budget_text = ""
+	_last_usage_change_ms = 0
+	_refresh_usage_label()
+	_request_account_read()
 	# session_id just became non-empty: re-evaluate the Send/Stop buttons
 	# (they were disabled while the session was still being created/loaded)
 	_update_send_state()
@@ -715,7 +741,12 @@ func _render_update(_sid: String, update: Dictionary) -> void:
 		_:
 			match str(update.get("sessionUpdate", "")):
 				"usage_update":
-					_usage_label.text = "%d/%d tok" % [int(update.get("used", 0)), int(update.get("size", 0))]
+					_used_tokens = int(update.get("used", 0))
+					_context_size = int(update.get("size", 0))
+					# remember when use happened, so the billing poll only fires
+					# after real activity (see _on_account_poll_tick)
+					_last_usage_change_ms = Time.get_ticks_msec()
+					_refresh_usage_label()
 				"session_info_update":
 					var t := str(update.get("title", ""))
 					if t != "":
@@ -737,6 +768,59 @@ func _stream_chunk(role: String, update: Dictionary) -> void:
 func _content_text(update: Dictionary) -> String:
 	var c: Variant = update.get("content", {})
 	return str(c.get("text", "")) if c is Dictionary else ""
+
+# ---------------------------------------------------------------- account/budget
+
+## Compose the usage section: "12345/200000 tok · PAYG API 15%" (either part
+## may be absent; the status-bar sync hides the section when both are empty).
+func _refresh_usage_label() -> void:
+	var tok := "" if _used_tokens < 0 else "%d/%d tok" % [_used_tokens, _context_size]
+	if tok == "":
+		_usage_label.text = _budget_text
+	elif _budget_text == "":
+		_usage_label.text = tok
+	else:
+		_usage_label.text = tok + " · " + _budget_text
+
+## account/read goes to the billing API, so it must not be spammed: the timer
+## fires once per ACCOUNT_POLL_INTERVAL_SEC and a request is only sent when a
+## usage_update landed within that window (i.e. the agent did real work).
+func _on_account_poll_tick() -> void:
+	var live := client != null and client.is_open() and not client.session_id.is_empty()
+	if not _should_poll_account(Time.get_ticks_msec(), _last_usage_change_ms, int(ACCOUNT_POLL_INTERVAL_SEC * 1000.0), live):
+		return
+	_request_account_read()
+
+## Pure decision core of the poll, split out so tests can drive it without a Timer.
+static func _should_poll_account(now_ms: int, last_usage_change_ms: int, interval_ms: int, session_live: bool) -> bool:
+	return session_live and last_usage_change_ms != 0 and now_ms - last_usage_change_ms <= interval_ms
+
+func _request_account_read() -> void:
+	if client == null or not client.is_open() or client.session_id.is_empty() or _account_poll_in_flight:
+		return
+	_account_poll_in_flight = true
+	client.read_account()
+
+## account/read answer (vibe extension): AccountView with plan + budget. The
+## budget is the monthly Vibe Code allowance (usage_percentage, payg_enabled) —
+## what the CLI status bar shows as "PAYG 15%". Errors are silent: the billing
+## endpoints are optional on self-hosted platforms, and the last good value stays.
+func _on_account_read(result: Dictionary, error: Variant) -> void:
+	_account_poll_in_flight = false
+	if error != null or result.is_empty():
+		return
+	var budget: Variant = result.get("budget", {})
+	if not (budget is Dictionary) or not budget.has("usage_percentage"):
+		return
+	var pct := int(round(float(budget["usage_percentage"])))
+	var plan: Variant = result.get("plan", {})
+	var label := str(plan.get("title", "")) if plan is Dictionary else ""
+	if label == "" and bool(budget.get("payg_enabled", false)):
+		label = "PAYG"
+	_budget_text = ("%s %d%%" % [label, pct]).strip_edges() if label != "" else "%d%%" % pct
+	var reset := str(budget.get("reset_at", ""))
+	_usage_label.tooltip_text = "monthly allowance %d%% used%s" % [pct, " — resets " + reset if reset != "" else ""]
+	_refresh_usage_label()
 
 ## Tool line with clickable file:line links (push_meta works with bbcode off).
 func _append_tool_line(title: String, status: String, locations: Array) -> void:
@@ -882,7 +966,12 @@ func _update_connection_ui(open: bool) -> void:
 	_status_label.text = "connected" if open else "disconnected"
 	if not open:
 		_turn_label.text = ""
-		_usage_label.text = ""
+		_used_tokens = -1
+		_context_size = 0
+		_budget_text = ""
+		_last_usage_change_ms = 0
+		_account_poll_in_flight = false
+		_refresh_usage_label()
 	_update_send_state()
 
 func _process(_delta: float) -> void:
