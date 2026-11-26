@@ -220,8 +220,10 @@ func test_main_scene_places_short_sword_a_short_distance_from_floating_player() 
 	assert_that(blade_dir.y > 0.9).is_true() # standing upright with a slight diagonal lean
 
 
-func test_hand_pose_basis_is_identity_while_swinging_and_grip_pose_otherwise() -> void:
-	assert_that(ShortSword.hand_pose_basis(true, 0.35).is_equal_approx(Basis.IDENTITY)).is_true()
+func test_hand_pose_basis_yaws_180_while_swinging_and_grip_pose_otherwise() -> void:
+	# while swinging the blade must lie flat and point outward from the right
+	# hand (-X), i.e. the design-time pose yawed 180 degrees about vertical
+	assert_that(ShortSword.hand_pose_basis(true, 0.35).is_equal_approx(Basis(Vector3.UP, PI))).is_true()
 	assert_that(ShortSword.hand_pose_basis(false, 0.35).is_equal_approx(ShortSword.equipped_basis(0.35))).is_true()
 
 
@@ -290,20 +292,21 @@ func test_swing_resets_hand_and_orbits_it_around_the_player_then_returns_to_rest
 	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true()
 	sword.start_swing()
 	assert_that(sword._swing_time).is_equal(0.0)
-	sword._process(0.0) # swing start: hand rotation reset, pivot still at zero
-	assert_that(hand.basis.is_equal_approx(Basis.IDENTITY)).is_true()
+	sword._process(0.0) # swing start: hand yawed 180 (blade outward), pivot still at zero
+	assert_that(hand.basis.is_equal_approx(Basis(Vector3.UP, PI))).is_true()
 	assert_that(pivot.rotation.y).is_equal(0.0)
 	var distance := hand.global_position.distance_to(player.global_position)
 	var pos_start := hand.global_position
 	sword._process(sword.swing_duration / 2.0) # halfway through the swing
 	assert_that(absf(pivot.rotation.y - sword.swing_angle / 2.0) < 0.0001).is_true() # pivot swept half the angle, positive sign sweeps the right hand (-X) to the front
 	assert_that(hand.global_position.z > 0.0).is_true() # halfway the hand is in front of the holder's facing direction (+Z at rest)
-	assert_that(hand.basis.is_equal_approx(Basis.IDENTITY)).is_true() # hand stays reset for the whole swing
+	assert_that(hand.basis.is_equal_approx(Basis(Vector3.UP, PI))).is_true() # hand stays yawed 180 for the whole swing
 	assert_that(sword.transform.is_equal_approx(Transform3D.IDENTITY)).is_true() # the sword itself is untouched
 	assert_that(absf(hand.global_position.distance_to(player.global_position) - distance) < 0.0001).is_true() # constant distance from the player's center
 	assert_that(hand.global_position.is_equal_approx(pos_start)).is_false() # but it did move around the player
 	var blade_held := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
-	assert_that(absf(blade_held.y) < 0.001).is_true() # blade lies flat while the hand is reset
+	assert_that(absf(blade_held.y) < 0.001).is_true() # blade lies flat during the swing
+	assert_that(blade_held.z > 0.5).is_true() # and points forward, not backward: the slash reads as an arc in front
 	sword._process(sword.swing_duration / 2.0 + 0.01) # finish the swing
 	assert_that(sword._swing_time < 0.0).is_true()
 	assert_that(pivot.rotation.is_zero_approx()).is_true() # pivot back to rest

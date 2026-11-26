@@ -69,12 +69,13 @@ static func equipped_basis(forward_lean: float) -> Basis:
 	return Basis(Vector3(1, 0, 0), forward_lean) * Basis(Vector3(0, 0, 1), PI / 2.0)
 
 
-## Basis for the holder's RightHand node: while a swing is playing the rotation is
-## reset to zero (the design-time pose); otherwise the equipped grip pose
-## applies. Pure function so it stays unit-testable.
+## Basis for the holder's RightHand node: while a swing is playing the hand is
+## yawed 180 degrees about vertical so the blade lies flat and points outward
+## from the right hand (-X), sweeping forward as the pivot yaws; otherwise the
+## equipped grip pose applies. Pure function so it stays unit-testable.
 static func hand_pose_basis(swinging: bool, forward_lean: float) -> Basis:
 	if swinging:
-		return Basis.IDENTITY
+		return Basis(Vector3.UP, PI)
 	return equipped_basis(forward_lean)
 
 
@@ -124,8 +125,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 ## Advances the swing if one is playing, then keeps the holder's RightHand node in
-## the pose for the current state: reset to zero rotation while swinging, the
-## equipped grip pose otherwise.
+## the pose for the current state: yawed 180 degrees (blade flat, pointing
+## outward) while swinging, the equipped grip pose otherwise.
 func _process_equipped(delta: float) -> void:
 	if _swing_time >= 0.0:
 		_swing_time += delta
@@ -139,7 +140,8 @@ func _process_equipped(delta: float) -> void:
 	_update_hand_pose(_swing_time >= 0.0)
 
 
-## Initiates a swing: the hand's rotation is reset to zero and the holder's
+## Initiates a swing: the hand is yawed 180 degrees (blade flat, pointing
+## outward from the right hand) and the holder's
 ## SwingPivot sweeps `swing_angle` radians around the holder over
 ## `swing_duration` seconds, carrying the hand at a constant distance from the
 ## holder's center. Does nothing unless the sword is equipped.
