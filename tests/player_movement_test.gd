@@ -70,7 +70,7 @@ func test_player_scene_has_a_hand_node_with_a_tracked_placeholder_sphere() -> vo
 	assert_that(pivot).is_not_null()
 	assert_that(pivot.position.is_zero_approx()).is_true() # pivot origin at the player's center
 	assert_that(hand.get_parent()).is_equal(pivot) # the hand hangs off the pivot
-	assert_that(hand.position.y > 0.8 and hand.position.y < 1.3).is_true() # at hand height
+	assert_that(absf(hand.position.y - 0.8) < 0.001).is_true() # half the 1.6 m body height
 	assert_that(Vector2(hand.position.x, hand.position.z).length() > 0.4).is_true() # beside the body, outside the 0.4 m capsule radius
 	var sphere := hand.get_node_or_null("Placeholder_Hand") as MeshInstance3D
 	assert_that(sphere).is_not_null()

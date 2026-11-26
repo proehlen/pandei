@@ -22,8 +22,8 @@ extends Node3D
 ## Applied with inverted sign so the arc covers the front of the holder's
 ## facing direction.
 @export var swing_angle: float = deg_to_rad(160.0)
-## Duration of one swing in seconds.
-@export var swing_duration: float = 0.35
+## Duration of one swing in seconds — a further 1.2x faster than the previous 0.35 s.
+@export var swing_duration: float = 0.35 / 1.2
 
 ## Elapsed time since the sword started bobbing.
 var _bob_time: float = 0.0
@@ -77,13 +77,20 @@ static func hand_pose_basis(swinging: bool, forward_lean: float) -> Basis:
 	return equipped_basis(forward_lean)
 
 
+## Smoothstep easing in [0, 1]: 0 at 0, 1 at 1, with zero slope at both ends,
+## so a swing eases in and out. Pure function so it stays unit-testable.
+static func ease_smoothstep(t: float) -> float:
+	var x := clampf(t, 0.0, 1.0)
+	return x * x * (3.0 - 2.0 * x)
+
+
 ## Angle swept by the swing pivot `time` seconds into a swing of `duration`
-## seconds and `total_angle` radians: linear, clamped to the full angle once
-## the swing is over. Pure function so it stays unit-testable.
+## seconds and `total_angle` radians: smoothstep-eased, clamped to the full
+## angle once the swing is over. Pure function so it stays unit-testable.
 static func swing_angle_at(time: float, duration: float, total_angle: float) -> float:
 	if duration <= 0.0:
 		return total_angle
-	return clampf(time / duration, 0.0, 1.0) * total_angle
+	return ease_smoothstep(time / duration) * total_angle
 
 
 ## True when `to` lies within `radius` meters of `from`. Pure function so it stays unit-testable.

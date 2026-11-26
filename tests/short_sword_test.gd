@@ -186,7 +186,7 @@ func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_for
 	assert_that(pivot.basis.is_equal_approx(Basis.IDENTITY)).is_true() # the sword pivot no longer takes the grip pose
 	# hilt (hand origin) at hand height beside the body, outside the 0.4 m capsule radius
 	var grip := hand.position
-	assert_that(grip.y > 0.8 and grip.y < 1.3).is_true()
+	assert_that(absf(grip.y - 0.8) < 0.001).is_true() # hand at half the body height
 	assert_that(Vector2(grip.x, grip.z).length() > 0.4).is_true()
 	# blade points up and leans toward the holder's facing direction (+Z), edge horizontal
 	var blade_node := sword.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
@@ -225,12 +225,25 @@ func test_hand_pose_basis_is_identity_while_swinging_and_grip_pose_otherwise() -
 	assert_that(ShortSword.hand_pose_basis(false, 0.35).is_equal_approx(ShortSword.equipped_basis(0.35))).is_true()
 
 
-func test_swing_angle_at_sweeps_linearly_and_clamps_to_full_angle() -> void:
-	var total := deg_to_rad(70.0)
-	assert_that(ShortSword.swing_angle_at(0.0, 0.7, total)).is_equal(0.0)
-	assert_that(absf(ShortSword.swing_angle_at(0.35, 0.7, total) - total / 2.0) < 0.0001).is_true()
-	assert_that(absf(ShortSword.swing_angle_at(0.7, 0.7, total) - total) < 0.0001).is_true()
-	assert_that(absf(ShortSword.swing_angle_at(2.0, 0.7, total) - total) < 0.0001).is_true() # clamped once the swing is over
+func test_ease_smoothstep_is_s_shaped_and_clamped() -> void:
+	assert_that(ShortSword.ease_smoothstep(0.0)).is_equal(0.0)
+	assert_that(ShortSword.ease_smoothstep(1.0)).is_equal(1.0)
+	assert_that(ShortSword.ease_smoothstep(-0.5)).is_equal(0.0) # clamped below
+	assert_that(ShortSword.ease_smoothstep(1.5)).is_equal(1.0) # clamped above
+	assert_that(ShortSword.ease_smoothstep(0.5)).is_equal(0.5) # symmetric midpoint
+	assert_that(ShortSword.ease_smoothstep(0.25) < 0.25).is_true() # eases in: below linear early on
+	assert_that(ShortSword.ease_smoothstep(0.75) > 0.75).is_true() # eases out: above linear late
+
+
+func test_swing_angle_at_eases_in_and_out_and_clamps_to_full_angle() -> void:
+	var total := deg_to_rad(160.0)
+	var duration := 0.35 / 1.2
+	assert_that(ShortSword.swing_angle_at(0.0, duration, total)).is_equal(0.0)
+	assert_that(absf(ShortSword.swing_angle_at(duration / 2.0, duration, total) - total / 2.0) < 0.0001).is_true() # midpoint unchanged by easing
+	assert_that(ShortSword.swing_angle_at(duration / 4.0, duration, total) < total / 4.0).is_true() # eases in
+	assert_that(ShortSword.swing_angle_at(3.0 * duration / 4.0, duration, total) > 3.0 * total / 4.0).is_true() # eases out
+	assert_that(absf(ShortSword.swing_angle_at(duration, duration, total) - total) < 0.0001).is_true()
+	assert_that(absf(ShortSword.swing_angle_at(2.0, duration, total) - total) < 0.0001).is_true() # clamped once the swing is over
 	assert_that(ShortSword.swing_angle_at(0.1, 0.0, total)).is_equal(total) # zero duration: instant
 
 

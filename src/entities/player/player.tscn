@@ -35,7 +35,7 @@ surface_material_override/0 = SubResource("StandardMaterial3D_body")
 [node name="SwingPivot" type="Node3D" parent="."]
 
 [node name="Hand" type="Node3D" parent="SwingPivot"]
-position = Vector3(0.55, 1.05, 0.15)
+position = Vector3(0.55, 0.8, 0.15)
 
 [node name="Placeholder_Hand" type="MeshInstance3D" parent="SwingPivot/Hand" groups=["ai_placeholder"]]
 mesh = SubResource("SphereMesh_hand")
