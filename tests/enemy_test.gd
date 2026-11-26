@@ -161,3 +161,34 @@ func test_enemy_eases_in_to_top_speed_and_eases_out_to_a_stop() -> void:
 	enemy._physics_process(1.0 / 60.0)
 	var slowed := Vector3(enemy.velocity.x, 0.0, enemy.velocity.z)
 	assert_that(absf(slowed.length() - (enemy.move_speed - enemy.acceleration / 60.0)) < 0.0001).is_true() # ease out, not instantly zero
+
+
+func test_enemy_collision_capsule_mimics_the_players_wider_hand_span_capsule() -> void:
+	var player: Player = auto_free((load("res://src/entities/player/player.tscn") as PackedScene).instantiate())
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	var player_shape := player.get_node("CollisionShape3D").shape as CapsuleShape3D
+	var enemy_shape := enemy.get_node("CollisionShape3D").shape as CapsuleShape3D
+	assert_that(enemy_shape.radius).is_equal(player_shape.radius) # same diameter on both bodies
+	assert_that(enemy_shape.radius > 0.4).is_true() # wider than the old torso-only capsule
+	assert_that(enemy_shape.height).is_equal(player_shape.height) # only the diameter grew, not the height
+	assert_that(absf(enemy_shape.height - 1.6) < 0.0001).is_true() # height unchanged (float32 from the scene)
+
+
+func test_chasing_enemy_stops_at_capsule_contact_instead_of_reaching_the_player() -> void:
+	var player: Player = auto_free((load("res://src/entities/player/player.tscn") as PackedScene).instantiate())
+	player.set_physics_process(false) # stationary target
+	player.gravity = 0.0 # stay at y=0 even if the physics loop runs: capsules must overlap vertically to collide
+	add_child(player)
+	player.global_position = Vector3(0, 0, 5)
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.gravity = 0.0 # keep both capsules at the same height so they can collide
+	add_child(enemy) # start_position at the origin; the real physics loop drives the chase
+	enemy.target = player
+	for i in 120: # 2 s of chase at up to 6 m/s easily covers the 5 m gap
+		await get_tree().physics_frame
+	var player_shape := player.get_node("CollisionShape3D").shape as CapsuleShape3D
+	var enemy_shape := enemy.get_node("CollisionShape3D").shape as CapsuleShape3D
+	var contact := player_shape.radius + enemy_shape.radius # center distance when the capsules touch
+	var gap := player.global_position.distance_to(enemy.global_position)
+	assert_that(gap < 5.0).is_true() # the enemy actually closed in on the player
+	assert_that(gap >= contact - 0.05).is_true() # ...but stops at contact instead of overlapping

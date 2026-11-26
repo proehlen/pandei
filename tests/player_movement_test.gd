@@ -126,7 +126,8 @@ func test_player_scene_has_a_right_hand_node_with_a_tracked_placeholder_sphere()
 	assert_that(pivot.position.is_zero_approx()).is_true() # pivot origin at the player's center
 	assert_that(hand.get_parent()).is_equal(pivot) # the hand hangs off the pivot
 	assert_that(absf(hand.position.y - 0.8) < 0.001).is_true() # half the 1.6 m body height
-	assert_that(Vector2(hand.position.x, hand.position.z).length() > 0.4).is_true() # beside the body, outside the 0.4 m capsule radius
+	var body_shape := player.get_node("CollisionShape3D").shape as CapsuleShape3D
+	assert_that(absf(Vector2(hand.position.x, hand.position.z).length() - body_shape.radius) < 0.05).is_true() # collision reaches out to where the hands are
 	assert_that(hand.position.x < 0.0).is_true() # on the holder's right: -X when facing +Z
 	var sphere := hand.get_node_or_null("Placeholder_RightHand") as MeshInstance3D
 	assert_that(sphere).is_not_null()
