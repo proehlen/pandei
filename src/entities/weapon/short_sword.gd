@@ -19,9 +19,11 @@ extends Node3D
 ## node, which carries the grip pose while the sword is equipped.
 @export var equipped_lean: float = 0.35
 ## Total angle in radians the hand sweeps around the holder during a swing.
-@export var swing_angle: float = deg_to_rad(70.0)
+## Applied with inverted sign so the arc covers the front of the holder's
+## facing direction.
+@export var swing_angle: float = deg_to_rad(160.0)
 ## Duration of one swing in seconds.
-@export var swing_duration: float = 0.7
+@export var swing_duration: float = 0.35
 
 ## Elapsed time since the sword started bobbing.
 var _bob_time: float = 0.0
@@ -124,7 +126,8 @@ func _process_equipped(delta: float) -> void:
 			if is_instance_valid(_swing_pivot):
 				_swing_pivot.rotation = Vector3.ZERO # swing over: pivot back to rest
 		elif is_instance_valid(_swing_pivot):
-			_swing_pivot.rotation.y = swing_angle_at(_swing_time, swing_duration, swing_angle)
+			# inverted sign: positive rotation.y would sweep the hand behind the holder
+			_swing_pivot.rotation.y = -swing_angle_at(_swing_time, swing_duration, swing_angle)
 	_update_hand_pose(_swing_time >= 0.0)
 
 

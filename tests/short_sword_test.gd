@@ -283,7 +283,8 @@ func test_swing_resets_hand_and_orbits_it_around_the_player_then_returns_to_rest
 	var distance := hand.global_position.distance_to(player.global_position)
 	var pos_start := hand.global_position
 	sword._process(sword.swing_duration / 2.0) # halfway through the swing
-	assert_that(absf(pivot.rotation.y - sword.swing_angle / 2.0) < 0.0001).is_true() # pivot swept half the angle
+	assert_that(absf(pivot.rotation.y + sword.swing_angle / 2.0) < 0.0001).is_true() # pivot swept half the angle, sign inverted
+	assert_that(hand.global_position.z > 0.0).is_true() # halfway the hand is in front of the holder's facing direction (+Z at rest)
 	assert_that(hand.basis.is_equal_approx(Basis.IDENTITY)).is_true() # hand stays reset for the whole swing
 	assert_that(sword.transform.is_equal_approx(Transform3D.IDENTITY)).is_true() # the sword itself is untouched
 	assert_that(absf(hand.global_position.distance_to(player.global_position) - distance) < 0.0001).is_true() # constant distance from the player's center
