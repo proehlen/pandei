@@ -3,13 +3,39 @@ extends GdUnitTestSuite
 
 func test_zero_input_gives_zero_direction() -> void:
 	assert_that(Player.input_to_direction(Vector2.ZERO)).is_equal(Vector3.ZERO)
+	assert_that(Player.input_to_direction(Vector2.ZERO, PI)).is_equal(Vector3.ZERO)
 
 
-func test_cardinal_inputs_map_to_world_xz_axes() -> void:
-	assert_that(Player.input_to_direction(Vector2(0, -1))).is_equal(Vector3(0, 0, -1)) # W -> forward (-Z)
-	assert_that(Player.input_to_direction(Vector2(0, 1))).is_equal(Vector3(0, 0, 1)) # S -> back (+Z)
-	assert_that(Player.input_to_direction(Vector2(-1, 0))).is_equal(Vector3(-1, 0, 0)) # A -> left (-X)
-	assert_that(Player.input_to_direction(Vector2(1, 0))).is_equal(Vector3(1, 0, 0)) # D -> right (+X)
+func test_cardinal_inputs_map_to_world_xz_axes_at_zero_camera_yaw() -> void:
+	assert_that(Player.input_to_direction(Vector2(0, -1), 0.0)).is_equal(Vector3(0, 0, -1)) # raw input forward (-Z)
+	assert_that(Player.input_to_direction(Vector2(0, 1), 0.0)).is_equal(Vector3(0, 0, 1))
+	assert_that(Player.input_to_direction(Vector2(-1, 0), 0.0)).is_equal(Vector3(-1, 0, 0))
+	assert_that(Player.input_to_direction(Vector2(1, 0), 0.0)).is_equal(Vector3(1, 0, 0))
+
+
+func test_cardinal_inputs_are_camera_relative_at_pi_yaw() -> void:
+	# The game camera sits behind the player looking along +Z (yaw PI), so W
+	# moves further in the camera's view direction and A to the camera's left.
+	# Rotating by PI leaves float residue, so compare with a tolerance.
+	assert_direction(Player.input_to_direction(Vector2(0, -1), PI), Vector3(0, 0, 1)) # W -> camera forward (+Z)
+	assert_direction(Player.input_to_direction(Vector2(0, 1), PI), Vector3(0, 0, -1)) # S -> back toward the camera (-Z)
+	assert_direction(Player.input_to_direction(Vector2(-1, 0), PI), Vector3(1, 0, 0)) # A -> camera left (+X)
+	assert_direction(Player.input_to_direction(Vector2(1, 0), PI), Vector3(-1, 0, 0)) # D -> camera right (-X)
+
+
+func assert_direction(actual: Vector3, expected: Vector3) -> void:
+	assert_that(absf(actual.x - expected.x) < 0.0001).is_true()
+	assert_that(absf(actual.y - expected.y) < 0.0001).is_true()
+	assert_that(absf(actual.z - expected.z) < 0.0001).is_true()
+
+
+func test_player_reads_camera_yaw_from_the_viewport_camera() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	main.call("follow_player") # applies the fixed camera rotation now instead of on the next frame
+	var player: Player = main.get_node("Player")
+	assert_that(absf(absf(player._camera_yaw()) - PI) < 0.001).is_true() # yaw +/-PI: camera behind the player
 
 
 func test_diagonal_input_is_normalized_on_the_xz_plane() -> void:
