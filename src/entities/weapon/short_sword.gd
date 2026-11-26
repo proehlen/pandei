@@ -22,8 +22,8 @@ extends Node3D
 ## Applied with inverted sign so the arc covers the front of the holder's
 ## facing direction.
 @export var swing_angle: float = deg_to_rad(160.0)
-## Duration of one swing in seconds — a further 1.2x faster than the previous 0.35 s.
-@export var swing_duration: float = 0.35 / 1.2
+## Duration of one swing in seconds — another 1.2x faster than the previous 0.35 / 1.2 s.
+@export var swing_duration: float = 0.35 / 1.2 / 1.2
 
 ## Elapsed time since the sword started bobbing.
 var _bob_time: float = 0.0
