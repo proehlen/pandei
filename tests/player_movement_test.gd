@@ -121,6 +121,25 @@ func test_camera_follows_player_position_with_fixed_orientation() -> void:
 	assert_that(camera.rotation.y).is_equal(camera_rotation.y) # fixed yaw, unaffected by player facing
 
 
+func test_sun_lights_the_camera_facing_side_from_behind_the_camera() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	var sun: DirectionalLight3D = main.get_node("Sun")
+	var camera: Camera3D = main.get_node("Camera3D")
+	var light_dir := sun.global_basis * Vector3(0, 0, -1) # direction the light travels
+	var cam_forward := camera.global_basis * Vector3(0, 0, -1)
+	assert_that(light_dir.y < 0.0).is_true() # still shines downward
+	# Horizontally the light must travel the way the camera looks, so it comes
+	# from behind the camera and lights the side of the character the camera sees.
+	var light_xz := Vector2(light_dir.x, light_dir.z)
+	var cam_xz := Vector2(cam_forward.x, cam_forward.z)
+	assert_that(light_xz.dot(cam_xz) > 0.0).is_true()
+	var from := -light_dir # direction the light comes from
+	assert_that(from.y > 0.0).is_true() # from above
+	assert_that(from.z < 0.0).is_true() # from the camera's side (-Z), opposite the player's +Z front
+
+
 func test_ground_grid_overlays_tracked_checkerboard_placeholder_tiles() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())
