@@ -38,10 +38,12 @@ func test_enemy_scene_has_red_placeholder_body() -> void:
 	assert_that(material.albedo_color.b < 0.3).is_true()
 
 
-func test_main_scene_places_enemy_at_its_design_position_and_syncs_speed() -> void:
+func test_main_scene_places_enemy_at_its_design_position_with_its_own_speed() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())
-	add_child(main) # triggers _ready, which syncs the enemy speed to the player's
+	var player_node: Node = main.get_node_or_null("Player")
+	(player_node as Player).move_speed = 9.0 # a different player speed must not leak into the enemy
+	add_child(main) # triggers _ready
 	await get_tree().physics_frame # lets the enemy acquire its target from the "player" group
 	var player: Node = main.get_node_or_null("Player")
 	var enemy: Node = main.get_node_or_null("Enemy")
@@ -53,7 +55,10 @@ func test_main_scene_places_enemy_at_its_design_position_and_syncs_speed() -> vo
 	assert_that(absf(player.global_position.distance_to(enemy.global_position) - sqrt(85.0)) < 0.001).is_true()
 	var enemy_body := enemy as Enemy
 	assert_that(enemy_body.detection_radius).is_equal(8.0)
-	assert_that(enemy_body.move_speed).is_equal((player as Player).move_speed)
+	assert_that(enemy_body.give_up_radius).is_equal(2.0 * enemy_body.detection_radius)
+	assert_that(enemy_body.move_speed).is_equal(6.0) # its own design value, not the player's 9.0
+	assert_that(enemy_body.move_speed).is_not_equal((player as Player).move_speed)
+	assert_that(enemy_body.start_position).is_equal(Vector3(7, 0, 6)) # give-up leash anchored at the spawn point
 	assert_that(enemy_body.target).is_equal(player)
 
 
@@ -75,6 +80,7 @@ func test_compute_chase_velocity_matches_detection_radius() -> void:
 	add_child(target)
 	enemy.target = target
 	enemy.global_position = Vector3(20, 0, 15)
+	enemy.start_position = enemy.global_position # leash anchored where the enemy stands
 	target.global_position = Vector3.ZERO
 	assert_that(enemy.compute_chase_velocity()).is_equal(Vector3.ZERO) # 25 m > 8 m default radius
 	target.global_position = Vector3(20, 0, 10) # 5 m away: inside the 8 m default radius
@@ -83,20 +89,75 @@ func test_compute_chase_velocity_matches_detection_radius() -> void:
 	assert_that(chase.z < 0.0 and absf(chase.x) < 0.0001).is_true() # straight toward the target
 
 
-func test_enemy_stays_idle_outside_radius_and_chases_inside_it_at_player_speed() -> void:
+func test_enemy_stays_idle_outside_radius_and_chases_inside_it_at_its_own_speed() -> void:
 	var player: Player = auto_free(Player.new())
 	add_child(player)
 	player.global_position = Vector3.ZERO
+	player.move_speed = 9.0 # the enemy must not take its speed from the player
 	var enemy: Enemy = auto_free(Enemy.new())
 	enemy.set_physics_process(false) # tests step _physics_process manually
 	enemy.target = player
-	enemy.move_speed = player.move_speed
 	add_child(enemy)
 	enemy.global_position = Vector3(20, 0, 15) # 25 m away: outside the 8 m default radius
+	enemy.start_position = enemy.global_position # leash anchored where the enemy stands
 	enemy._physics_process(1.0 / 60.0)
 	assert_that(Vector3(enemy.velocity.x, 0.0, enemy.velocity.z)).is_equal(Vector3.ZERO)
 	player.global_position = Vector3(18, 0, 15) # 2 m away: inside the radius
-	enemy._physics_process(1.0 / 60.0)
+	for i in 14: # 14 frames at 30 m/s^2 reach the 6 m/s top speed (capped by ease_velocity)
+		enemy._physics_process(1.0 / 60.0)
 	var horizontal := Vector3(enemy.velocity.x, 0.0, enemy.velocity.z)
-	assert_that(absf(horizontal.length() - player.move_speed) < 0.001).is_true()
+	assert_that(enemy.move_speed).is_equal(6.0)
+	assert_that(absf(horizontal.length() - enemy.move_speed) < 0.001).is_true()
 	assert_that(horizontal.x < 0.0 and absf(horizontal.z) < 0.0001).is_true() # straight toward the player
+
+
+func test_give_up_radius_defaults_to_twice_the_detection_radius() -> void:
+	var enemy: Enemy = auto_free(Enemy.new())
+	assert_that(enemy.give_up_radius).is_equal(2.0 * enemy.detection_radius)
+
+
+func test_enemy_gives_up_when_target_is_beyond_give_up_radius_from_its_start() -> void:
+	var enemy: Enemy = auto_free(Enemy.new())
+	enemy.set_physics_process(false) # tests step _physics_process manually
+	add_child(enemy) # _ready anchors start_position at the origin
+	assert_that(enemy.start_position).is_equal(Vector3.ZERO)
+	var target: Node3D = auto_free(Node3D.new())
+	add_child(target)
+	enemy.target = target
+	enemy.global_position = Vector3(0, 0, 10) # the enemy has chased 10 m away from its post
+	target.global_position = Vector3(0, 0, 15) # 5 m from the enemy (inside detection), 15 m from start (inside leash)
+	assert_that(enemy.compute_chase_velocity()).is_not_equal(Vector3.ZERO)
+	target.global_position = Vector3(0, 0, 17) # 7 m from the enemy (still inside detection) but 17 m from start: beyond the leash
+	assert_that(enemy.compute_chase_velocity()).is_equal(Vector3.ZERO)
+
+
+func test_ease_velocity_moves_toward_target_by_at_most_acceleration_times_delta() -> void:
+	var eased := Enemy.ease_velocity(Vector3.ZERO, Vector3(6, 0, 0), 30.0, 1.0 / 60.0)
+	assert_that(absf(eased.x - 0.5) < 0.0001 and absf(eased.z) < 0.0001).is_true() # 30 * 1/60, not full speed
+	# a step larger than the remaining distance lands exactly on the target
+	assert_that(Enemy.ease_velocity(Vector3(5.9, 0, 0), Vector3(6, 0, 0), 30.0, 1.0 / 60.0)).is_equal(Vector3(6, 0, 0))
+	# easing out uses the same rate back toward zero
+	var slowed := Enemy.ease_velocity(Vector3(6, 0, 0), Vector3.ZERO, 30.0, 1.0 / 60.0)
+	assert_that(absf(slowed.x - 5.5) < 0.0001).is_true()
+
+
+func test_enemy_eases_in_to_top_speed_and_eases_out_to_a_stop() -> void:
+	var enemy: Enemy = auto_free(Enemy.new())
+	enemy.set_physics_process(false) # tests step _physics_process manually
+	add_child(enemy) # start_position at the origin
+	var target: Node3D = auto_free(Node3D.new())
+	add_child(target)
+	enemy.target = target
+	target.global_position = Vector3(0, 0, 7) # inside detection radius and leash
+	enemy._physics_process(1.0 / 60.0)
+	var first := Vector3(enemy.velocity.x, 0.0, enemy.velocity.z)
+	assert_that(absf(first.length() - enemy.acceleration / 60.0) < 0.0001).is_true() # ease in, not instantly at max
+	assert_that(first.length() < enemy.move_speed).is_true()
+	for i in 13:
+		enemy._physics_process(1.0 / 60.0)
+	var top := Vector3(enemy.velocity.x, 0.0, enemy.velocity.z)
+	assert_that(absf(top.length() - enemy.move_speed) < 0.001).is_true() # top speed reached
+	target.global_position = Vector3(0, 0, 100) # out of range: desired velocity drops to zero
+	enemy._physics_process(1.0 / 60.0)
+	var slowed := Vector3(enemy.velocity.x, 0.0, enemy.velocity.z)
+	assert_that(absf(slowed.length() - (enemy.move_speed - enemy.acceleration / 60.0)) < 0.0001).is_true() # ease out, not instantly zero

@@ -52,6 +52,35 @@ func test_input_to_velocity_scales_by_speed() -> void:
 	assert_that(absf(diagonal.length() - 6.0) < 0.0001).is_true()
 
 
+func test_ease_velocity_moves_toward_target_by_at_most_acceleration_times_delta() -> void:
+	var eased := Player.ease_velocity(Vector3.ZERO, Vector3(0, 0, 6), 30.0, 1.0 / 60.0)
+	assert_that(absf(eased.z - 0.5) < 0.0001 and absf(eased.x) < 0.0001).is_true() # 30 * 1/60, not full speed
+	# a step larger than the remaining distance lands exactly on the target
+	assert_that(Player.ease_velocity(Vector3(0, 0, 5.9), Vector3(0, 0, 6), 30.0, 1.0 / 60.0)).is_equal(Vector3(0, 0, 6))
+	# easing out uses the same rate back toward zero
+	var slowed := Player.ease_velocity(Vector3(0, 0, 6), Vector3.ZERO, 30.0, 1.0 / 60.0)
+	assert_that(absf(slowed.z - 5.5) < 0.0001).is_true()
+
+
+func test_player_eases_in_and_out_of_movement_instead_of_snapping() -> void:
+	var player: Player = auto_free(Player.new())
+	player.set_physics_process(false) # tests step _physics_process manually
+	add_child(player)
+	Input.action_press("move_right")
+	player._physics_process(1.0 / 60.0)
+	var first := Vector3(player.velocity.x, 0.0, player.velocity.z)
+	for i in 13:
+		player._physics_process(1.0 / 60.0)
+	var top := Vector3(player.velocity.x, 0.0, player.velocity.z)
+	Input.action_release("move_right")
+	player._physics_process(1.0 / 60.0)
+	var slowed := Vector3(player.velocity.x, 0.0, player.velocity.z)
+	assert_that(absf(first.length() - player.acceleration / 60.0) < 0.0001).is_true() # ease in, not instantly at max
+	assert_that(first.length() < player.move_speed).is_true()
+	assert_that(absf(top.length() - player.move_speed) < 0.001).is_true() # top speed reached
+	assert_that(absf(slowed.length() - (player.move_speed - player.acceleration / 60.0)) < 0.0001).is_true() # ease out, not instantly zero
+
+
 func test_wasd_input_actions_are_registered() -> void:
 	var expected := {
 		"move_left": KEY_A,
