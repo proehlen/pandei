@@ -3,13 +3,39 @@ extends GdUnitTestSuite
 
 func test_zero_input_gives_zero_direction() -> void:
 	assert_that(Player.input_to_direction(Vector2.ZERO)).is_equal(Vector3.ZERO)
+	assert_that(Player.input_to_direction(Vector2.ZERO, PI)).is_equal(Vector3.ZERO)
 
 
-func test_cardinal_inputs_map_to_world_xz_axes() -> void:
-	assert_that(Player.input_to_direction(Vector2(0, -1))).is_equal(Vector3(0, 0, -1)) # W -> forward (-Z)
-	assert_that(Player.input_to_direction(Vector2(0, 1))).is_equal(Vector3(0, 0, 1)) # S -> back (+Z)
-	assert_that(Player.input_to_direction(Vector2(-1, 0))).is_equal(Vector3(-1, 0, 0)) # A -> left (-X)
-	assert_that(Player.input_to_direction(Vector2(1, 0))).is_equal(Vector3(1, 0, 0)) # D -> right (+X)
+func test_cardinal_inputs_map_to_world_xz_axes_at_zero_camera_yaw() -> void:
+	assert_that(Player.input_to_direction(Vector2(0, -1), 0.0)).is_equal(Vector3(0, 0, -1)) # raw input forward (-Z)
+	assert_that(Player.input_to_direction(Vector2(0, 1), 0.0)).is_equal(Vector3(0, 0, 1))
+	assert_that(Player.input_to_direction(Vector2(-1, 0), 0.0)).is_equal(Vector3(-1, 0, 0))
+	assert_that(Player.input_to_direction(Vector2(1, 0), 0.0)).is_equal(Vector3(1, 0, 0))
+
+
+func test_cardinal_inputs_are_camera_relative_at_pi_yaw() -> void:
+	# The game camera sits behind the player looking along +Z (yaw PI), so W
+	# moves further in the camera's view direction and A to the camera's left.
+	# Rotating by PI leaves float residue, so compare with a tolerance.
+	assert_direction(Player.input_to_direction(Vector2(0, -1), PI), Vector3(0, 0, 1)) # W -> camera forward (+Z)
+	assert_direction(Player.input_to_direction(Vector2(0, 1), PI), Vector3(0, 0, -1)) # S -> back toward the camera (-Z)
+	assert_direction(Player.input_to_direction(Vector2(-1, 0), PI), Vector3(1, 0, 0)) # A -> camera left (+X)
+	assert_direction(Player.input_to_direction(Vector2(1, 0), PI), Vector3(-1, 0, 0)) # D -> camera right (-X)
+
+
+func assert_direction(actual: Vector3, expected: Vector3) -> void:
+	assert_that(absf(actual.x - expected.x) < 0.0001).is_true()
+	assert_that(absf(actual.y - expected.y) < 0.0001).is_true()
+	assert_that(absf(actual.z - expected.z) < 0.0001).is_true()
+
+
+func test_player_reads_camera_yaw_from_the_viewport_camera() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	main.call("follow_player") # applies the fixed camera rotation now instead of on the next frame
+	var player: Player = main.get_node("Player")
+	assert_that(absf(absf(player._camera_yaw()) - PI) < 0.001).is_true() # yaw +/-PI: camera behind the player
 
 
 func test_diagonal_input_is_normalized_on_the_xz_plane() -> void:
@@ -90,9 +116,28 @@ func test_camera_follows_player_position_with_fixed_orientation() -> void:
 	player.rotation.y = 2.0 # facing sideways must not swing the camera
 	main.call("follow_player")
 	var camera_rotation: Vector3 = main.get("camera_rotation")
-	assert_that(camera.global_position).is_equal(Vector3(3, 10.5, 4))
+	assert_that(camera.global_position).is_equal(Vector3(3, 10.5, -8))
 	assert_that(camera.rotation).is_equal(camera_rotation)
-	assert_that(camera.rotation.y).is_equal(0.0)
+	assert_that(camera.rotation.y).is_equal(camera_rotation.y) # fixed yaw, unaffected by player facing
+
+
+func test_sun_lights_the_camera_facing_side_from_behind_the_camera() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	var sun: DirectionalLight3D = main.get_node("Sun")
+	var camera: Camera3D = main.get_node("Camera3D")
+	var light_dir := sun.global_basis * Vector3(0, 0, -1) # direction the light travels
+	var cam_forward := camera.global_basis * Vector3(0, 0, -1)
+	assert_that(light_dir.y < 0.0).is_true() # still shines downward
+	# Horizontally the light must travel the way the camera looks, so it comes
+	# from behind the camera and lights the side of the character the camera sees.
+	var light_xz := Vector2(light_dir.x, light_dir.z)
+	var cam_xz := Vector2(cam_forward.x, cam_forward.z)
+	assert_that(light_xz.dot(cam_xz) > 0.0).is_true()
+	var from := -light_dir # direction the light comes from
+	assert_that(from.y > 0.0).is_true() # from above
+	assert_that(from.z < 0.0).is_true() # from the camera's side (-Z), opposite the player's +Z front
 
 
 func test_ground_grid_overlays_tracked_checkerboard_placeholder_tiles() -> void:
