@@ -159,7 +159,7 @@ func test_player_walking_over_sword_picks_it_up_and_equips_it() -> void:
 	assert_that(sword.get_parent()).is_not_equal(player)
 	player.global_position = Vector3(3, 0, 2.5) # walked over the sword: 1.3 m away, within the 1.5 m radius
 	sword._physics_process(1.0 / 60.0)
-	var hand := player.get_node("Hand") as Node3D
+	var hand := player.get_node("SwingPivot/Hand") as Node3D
 	assert_that(sword.equipped).is_true()
 	assert_that(sword.holder).is_equal(player)
 	assert_that(sword.get_parent()).is_equal(hand) # attached to the hand, not the body
@@ -178,7 +178,7 @@ func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_for
 	add_child(sword)
 	sword.equip(player)
 	# the hand carries the attach point and the grip pose; the sword hangs off it untouched
-	var hand := player.get_node("Hand") as Node3D
+	var hand := player.get_node("SwingPivot/Hand") as Node3D
 	assert_that(sword.get_parent()).is_equal(hand)
 	assert_that(sword.transform.is_equal_approx(Transform3D.IDENTITY)).is_true()
 	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true()
@@ -186,7 +186,7 @@ func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_for
 	assert_that(pivot.basis.is_equal_approx(Basis.IDENTITY)).is_true() # the sword pivot no longer takes the grip pose
 	# hilt (hand origin) at hand height beside the body, outside the 0.4 m capsule radius
 	var grip := hand.position
-	assert_that(grip.y > 0.8 and grip.y < 1.3).is_true()
+	assert_that(absf(grip.y - 0.8) < 0.001).is_true() # hand at half the body height
 	assert_that(Vector2(grip.x, grip.z).length() > 0.4).is_true()
 	# blade points up and leans toward the holder's facing direction (+Z), edge horizontal
 	var blade_node := sword.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
@@ -220,6 +220,106 @@ func test_main_scene_places_short_sword_a_short_distance_from_floating_player() 
 	assert_that(blade_dir.y > 0.9).is_true() # standing upright with a slight diagonal lean
 
 
+func test_hand_pose_basis_is_identity_while_swinging_and_grip_pose_otherwise() -> void:
+	assert_that(ShortSword.hand_pose_basis(true, 0.35).is_equal_approx(Basis.IDENTITY)).is_true()
+	assert_that(ShortSword.hand_pose_basis(false, 0.35).is_equal_approx(ShortSword.equipped_basis(0.35))).is_true()
+
+
+func test_ease_smoothstep_is_s_shaped_and_clamped() -> void:
+	assert_that(ShortSword.ease_smoothstep(0.0)).is_equal(0.0)
+	assert_that(ShortSword.ease_smoothstep(1.0)).is_equal(1.0)
+	assert_that(ShortSword.ease_smoothstep(-0.5)).is_equal(0.0) # clamped below
+	assert_that(ShortSword.ease_smoothstep(1.5)).is_equal(1.0) # clamped above
+	assert_that(ShortSword.ease_smoothstep(0.5)).is_equal(0.5) # symmetric midpoint
+	assert_that(ShortSword.ease_smoothstep(0.25) < 0.25).is_true() # eases in: below linear early on
+	assert_that(ShortSword.ease_smoothstep(0.75) > 0.75).is_true() # eases out: above linear late
+
+
+func test_swing_angle_at_eases_in_and_out_and_clamps_to_full_angle() -> void:
+	var total := deg_to_rad(160.0)
+	var duration := 0.35 / 1.2
+	assert_that(ShortSword.swing_angle_at(0.0, duration, total)).is_equal(0.0)
+	assert_that(absf(ShortSword.swing_angle_at(duration / 2.0, duration, total) - total / 2.0) < 0.0001).is_true() # midpoint unchanged by easing
+	assert_that(ShortSword.swing_angle_at(duration / 4.0, duration, total) < total / 4.0).is_true() # eases in
+	assert_that(ShortSword.swing_angle_at(3.0 * duration / 4.0, duration, total) > 3.0 * total / 4.0).is_true() # eases out
+	assert_that(absf(ShortSword.swing_angle_at(duration, duration, total) - total) < 0.0001).is_true()
+	assert_that(absf(ShortSword.swing_angle_at(2.0, duration, total) - total) < 0.0001).is_true() # clamped once the swing is over
+	assert_that(ShortSword.swing_angle_at(0.1, 0.0, total)).is_equal(total) # zero duration: instant
+
+
+func test_left_click_press_starts_a_swing_only_when_equipped() -> void:
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	sword._unhandled_input(click)
+	assert_that(sword._swing_time < 0.0).is_true() # not equipped: no swing
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	add_child(player)
+	sword.equip(player)
+	sword._unhandled_input(click)
+	assert_that(sword._swing_time >= 0.0).is_true() # equipped: press starts the swing
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.pressed = false
+	sword._swing_time = 0.2
+	sword._unhandled_input(release)
+	assert_that(sword._swing_time).is_equal(0.2) # a release neither starts nor stops a swing
+
+
+func test_swing_resets_hand_and_orbits_it_around_the_player_then_returns_to_rest() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	add_child(player)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(player)
+	var hand := player.get_node("SwingPivot/Hand") as Node3D
+	var pivot := player.get_node("SwingPivot") as Node3D
+	var blade_node := sword.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
+	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true()
+	sword.start_swing()
+	assert_that(sword._swing_time).is_equal(0.0)
+	sword._process(0.0) # swing start: hand rotation reset, pivot still at zero
+	assert_that(hand.basis.is_equal_approx(Basis.IDENTITY)).is_true()
+	assert_that(pivot.rotation.y).is_equal(0.0)
+	var distance := hand.global_position.distance_to(player.global_position)
+	var pos_start := hand.global_position
+	sword._process(sword.swing_duration / 2.0) # halfway through the swing
+	assert_that(absf(pivot.rotation.y + sword.swing_angle / 2.0) < 0.0001).is_true() # pivot swept half the angle, sign inverted
+	assert_that(hand.global_position.z > 0.0).is_true() # halfway the hand is in front of the holder's facing direction (+Z at rest)
+	assert_that(hand.basis.is_equal_approx(Basis.IDENTITY)).is_true() # hand stays reset for the whole swing
+	assert_that(sword.transform.is_equal_approx(Transform3D.IDENTITY)).is_true() # the sword itself is untouched
+	assert_that(absf(hand.global_position.distance_to(player.global_position) - distance) < 0.0001).is_true() # constant distance from the player's center
+	assert_that(hand.global_position.is_equal_approx(pos_start)).is_false() # but it did move around the player
+	var blade_held := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
+	assert_that(absf(blade_held.y) < 0.001).is_true() # blade lies flat while the hand is reset
+	sword._process(sword.swing_duration / 2.0 + 0.01) # finish the swing
+	assert_that(sword._swing_time < 0.0).is_true()
+	assert_that(pivot.rotation.is_zero_approx()).is_true() # pivot back to rest
+	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true() # grip pose restored
+	var blade := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
+	assert_that(blade.y > 0.9).is_true() # blade up again at rest
+
+
+func test_update_hand_pose_does_nothing_before_equip() -> void:
+	var sword: ShortSword = auto_free(ShortSword.new())
+	sword.set_process(false)
+	add_child(sword)
+	sword._update_hand_pose(true) # no holder yet: must not crash
+	assert_that(sword.equipped).is_false()
+
+
 func test_main_scene_player_walks_over_sword_and_equips_it() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())
@@ -233,7 +333,7 @@ func test_main_scene_player_walks_over_sword_and_equips_it() -> void:
 	await get_tree().physics_frame
 	var sword_body := sword as ShortSword
 	assert_that(sword_body.equipped).is_true()
-	assert_that(sword_body.get_parent()).is_equal(player.get_node("Hand")) # equipped on the hand
+	assert_that(sword_body.get_parent()).is_equal(player.get_node("SwingPivot/Hand")) # equipped on the hand
 	var blade_node := sword_body.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
 	var blade := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
 	assert_that(blade.y > 0.9).is_true() # equipped blade points up, ready for combat
