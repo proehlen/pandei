@@ -3,6 +3,9 @@ extends CharacterBody3D
 
 ## Top-down movement speed in meters per second.
 @export var move_speed: float = 6.0
+## Horizontal acceleration in m/s^2 used to ease in/out of movement. At the
+## defaults this reaches move_speed in ~0.2 s, keeping the ramp subtle.
+@export var acceleration: float = 30.0
 ## Gravity applied while airborne so the character stays grounded.
 @export var gravity: float = 20.0
 ## How quickly the character turns to face its movement direction (radians per second).
@@ -25,6 +28,11 @@ static func input_to_velocity(input: Vector2, speed: float, camera_yaw: float = 
 	var direction := input_to_direction(input, camera_yaw)
 	return Vector3(direction.x * speed, 0.0, direction.z * speed)
 
+## Horizontal velocity after easing `current` toward `target` by at most
+## `acceleration * delta` meters. Pure function so it stays unit-testable.
+static func ease_velocity(current: Vector3, target: Vector3, acceleration: float, delta: float) -> Vector3:
+	return current.move_toward(target, acceleration * delta)
+
 ## Yaw of the viewport's active camera, making WASD camera-relative: W moves in
 ## the direction the camera looks, A to the camera's left. Returns 0 when the
 ## viewport has no camera.
@@ -38,7 +46,8 @@ func _camera_yaw() -> float:
 func _physics_process(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var camera_yaw := _camera_yaw()
-	var horizontal := input_to_velocity(input, move_speed, camera_yaw)
+	var desired := input_to_velocity(input, move_speed, camera_yaw)
+	var horizontal := ease_velocity(Vector3(velocity.x, 0.0, velocity.z), desired, acceleration, delta)
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
 	if not is_on_floor():

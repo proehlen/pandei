@@ -184,10 +184,11 @@ func test_equipped_sword_sits_at_hand_height_beside_holder_with_blade_up_and_for
 	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true()
 	var pivot := sword.get_node("Placeholder_SwordPivot") as Node3D
 	assert_that(pivot.basis.is_equal_approx(Basis.IDENTITY)).is_true() # the sword pivot no longer takes the grip pose
-	# hilt (hand origin) at hand height beside the body, outside the 0.4 m capsule radius
+	# hilt (hand origin) at hand height beside the body, at the edge of the collision capsule
 	var grip := hand.position
 	assert_that(absf(grip.y - 0.8) < 0.001).is_true() # hand at half the body height
-	assert_that(Vector2(grip.x, grip.z).length() > 0.4).is_true()
+	var body_shape := player.get_node("CollisionShape3D").shape as CapsuleShape3D
+	assert_that(Vector2(grip.x, grip.z).length() >= body_shape.radius - 0.05).is_true() # at the collision edge, where the hands are
 	# blade points up and leans toward the holder's facing direction (+Z), edge horizontal
 	var blade_node := sword.get_node("Placeholder_SwordPivot/Placeholder_Blade") as Node3D
 	var blade := (blade_node.global_transform.basis * Vector3.RIGHT).normalized()
