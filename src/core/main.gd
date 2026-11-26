@@ -1,12 +1,14 @@
 class_name Main
 extends Node3D
 
-## World-space offset of the camera from the player.
-@export var camera_offset: Vector3 = Vector3(0, 10.5, 6)
-## Fixed world-space orientation of the camera (top-down pitch, no yaw).
+## World-space offset of the camera from the player. Negative Z puts the
+## camera behind the character's facing direction (+Z), looking at its back.
+@export var camera_offset: Vector3 = Vector3(0, 10.5, -6)
+## Fixed world-space orientation of the camera (top-down pitch, yawed 180
+## degrees so it looks along +Z from behind the player).
 ## The camera deliberately does NOT rotate with the player, so movement can be
 ## tested independent of the view. Camera rotation via keys can be added later.
-@export var camera_rotation: Vector3 = Vector3(-1.1257, 0, 0)
+@export var camera_rotation: Vector3 = Vector3(-1.1257, PI, 0)
 ## Whether the discrete FPS counter is shown in the top-left corner.
 @export var show_fps: bool = true
 

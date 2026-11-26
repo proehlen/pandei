@@ -90,9 +90,9 @@ func test_camera_follows_player_position_with_fixed_orientation() -> void:
 	player.rotation.y = 2.0 # facing sideways must not swing the camera
 	main.call("follow_player")
 	var camera_rotation: Vector3 = main.get("camera_rotation")
-	assert_that(camera.global_position).is_equal(Vector3(3, 10.5, 4))
+	assert_that(camera.global_position).is_equal(Vector3(3, 10.5, -8))
 	assert_that(camera.rotation).is_equal(camera_rotation)
-	assert_that(camera.rotation.y).is_equal(0.0)
+	assert_that(camera.rotation.y).is_equal(camera_rotation.y) # fixed yaw, unaffected by player facing
 
 
 func test_ground_grid_overlays_tracked_checkerboard_placeholder_tiles() -> void:
