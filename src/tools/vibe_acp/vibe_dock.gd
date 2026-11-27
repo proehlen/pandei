@@ -81,6 +81,23 @@ var _block_open := false
 var _block_pushes := 0
 var _open_msg_id := ""
 var _open_role := ""
+var _last_mode := ""  # mode of the last transcript item; blank line on change (see _separate_mode)
+
+# Thought blocks: agent_thought_chunk text is buffered per messageId and NEVER
+# appended to the transcript (long reasoning must not push the chat up). While a
+# block streams, a "Thinking" LinkButton overlay at the bottom of the chat area
+# shows it (animated dots) and opens a dialog with the thinking so far on click;
+# when the block closes, a static clickable "Thought" link line is appended to
+# the transcript. The transcript RichTextLabel is strictly APPEND-ONLY: rewriting
+# a paragraph via remove_paragraph proved unreliable in a laid-out RTL (each call
+# ate one earlier line), so no transcript text is ever removed or rewritten.
+var _thought_msg_id := ""  # messageId of the currently streaming thought block ("" = none)
+var _thoughts_by_id: Dictionary = {}  # messageId -> full thought text (dialog source), capped
+var _thought_link: LinkButton  # live "Thinking" overlay, visible only while a block streams
+var _thought_anim_tick := 0  # dot-animation phase of the streaming label
+var _thought_anim_acc := 0.0  # seconds since the label was last re-rendered
+const MAX_THOUGHTS_KEPT := 50  # bound memory over long sessions (oldest dropped first)
+const THOUGHT_ANIM_INTERVAL_SEC := 0.4
 
 const COLOR_USER := Color(0.55, 0.80, 1.00)
 const COLOR_AGENT := Color(0.90, 0.95, 1.00)
@@ -216,6 +233,20 @@ func _build_ui() -> void:
 	_transcript.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_transcript.meta_clicked.connect(_on_transcript_meta_clicked)
 	add_child(_transcript)
+
+	# live "Thinking" overlay between the transcript and the input row: a LinkButton
+	# so its text can be freely animated/rewritten (the transcript itself is
+	# append-only) and clicked to open the thought dialog
+	_thought_link = LinkButton.new()
+	_thought_link.tooltip_text = "Show what Vibe is thinking so far"
+	_thought_link.add_theme_color_override("font_color", COLOR_THOUGHT)
+	_thought_link.add_theme_color_override("font_hover_color", COLOR_THOUGHT.lightened(0.25))
+	_thought_link.add_theme_color_override("font_pressed_color", COLOR_THOUGHT)
+	_thought_link.visible = false
+	_thought_link.pressed.connect(func() -> void:
+		if _thought_msg_id != "":
+			_open_thought_dialog(_thought_msg_id))
+	add_child(_thought_link)
 
 	_input_row = HBoxContainer.new()
 	add_child(_input_row)
@@ -525,6 +556,12 @@ func _handle_disconnect(message: String) -> void:
 
 func _on_new_session() -> void:
 	_transcript.clear()
+	# the transcript is gone: drop the thought state directly so _close_block()
+	# does not append a stale "Thought" line into the cleared transcript
+	_thought_msg_id = ""
+	_thoughts_by_id.clear()
+	_thought_link.visible = false
+	_last_mode = ""
 	_close_block()
 	_tool_calls_by_id.clear()
 	_busy = false
@@ -733,8 +770,10 @@ func _on_fs_write(params: Variant, respond: Callable) -> void:
 func _render_update(_sid: String, update: Dictionary) -> void:
 	var role := TranscriptRoles.role_for_update(update)
 	match role:
-		TranscriptRoles.ROLE_AGENT, TranscriptRoles.ROLE_THOUGHT:
+		TranscriptRoles.ROLE_AGENT:
 			_stream_chunk(role, update)
+		TranscriptRoles.ROLE_THOUGHT:
+			_thought_chunk(update)
 		TranscriptRoles.ROLE_USER:
 			_append_line_role(TranscriptRoles.ROLE_USER, _content_text(update))
 		TranscriptRoles.ROLE_TOOL:
@@ -786,6 +825,83 @@ func _stream_chunk(role: String, update: Dictionary) -> void:
 func _content_text(update: Dictionary) -> String:
 	var c: Variant = update.get("content", {})
 	return str(c.get("text", "")) if c is Dictionary else ""
+
+# ---------------------------------------------------------------- thought blocks
+
+## Thought chunks are buffered, not streamed into the transcript: each chunk is
+## one string append to _thoughts_by_id, the RichTextLabel is not touched at all.
+func _thought_chunk(update: Dictionary) -> void:
+	var mid := str(update.get("messageId", ""))
+	if mid != _thought_msg_id:
+		_open_thought_block(mid)
+	var text := _content_text(update)
+	if text == "":
+		return
+	_thoughts_by_id[mid] = str(_thoughts_by_id.get(mid, "")) + text
+	while _thoughts_by_id.size() > MAX_THOUGHTS_KEPT:
+		_thoughts_by_id.erase(_thoughts_by_id.keys()[0])  # oldest first
+
+## Start a new thought block: close whatever is open (which also appends the
+## previous block's static "Thought" line), then show the live "Thinking" overlay.
+func _open_thought_block(mid: String) -> void:
+	_close_block()
+	_thought_msg_id = mid
+	if not _thoughts_by_id.has(mid):
+		_thoughts_by_id[mid] = ""
+	_thought_anim_tick = 0
+	_thought_anim_acc = 0.0
+	_thought_link.text = TranscriptRoles.thought_label(true)
+	_thought_link.visible = true
+
+## Finish the streaming thought block: hide the live overlay and append the
+## block's static, clickable "Thought" link line to the transcript. Called from
+## _close_block, i.e. on every role change, tool line, prompt_finished,
+## disconnect and New.
+func _close_thought_block() -> void:
+	if _thought_msg_id == "":
+		return
+	var mid := _thought_msg_id
+	_thought_msg_id = ""
+	_thought_link.visible = false
+	_append_thought_link_line(mid)
+
+## Append a finished block's "Thought" link as a terminated line. push_meta works
+## with bbcode off — same mechanism as the tool-call file links. The transcript is
+## append-only: this line is never modified afterwards.
+func _append_thought_link_line(mid: String) -> void:
+	_separate_mode(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_THOUGHT))
+	_transcript.push_meta({"thought_id": mid})
+	_transcript.push_color(COLOR_THOUGHT)
+	_transcript.push_underline()
+	_transcript.append_text(TranscriptRoles.thought_label(false))
+	_transcript.pop()  # underline
+	_transcript.pop()  # color
+	_transcript.pop()  # meta
+	_transcript.append_text("\n")
+
+## Advance the streaming-label animation by delta seconds (called from _process):
+## cycles the overlay link's trailing dots once the interval elapsed. Only the
+## LinkButton text changes — the transcript and the buffer are never touched.
+## Split out so tests can drive it without a running tree.
+func _advance_thought_anim(delta: float) -> void:
+	if _thought_msg_id == "":
+		return
+	_thought_anim_acc += delta
+	if _thought_anim_acc >= THOUGHT_ANIM_INTERVAL_SEC:
+		_thought_anim_acc = 0.0
+		_thought_anim_tick += 1
+		_thought_link.text = TranscriptRoles.thought_label_animated(_thought_anim_tick)
+
+## Clicking a thought link (the live overlay or a finished "Thought" line) opens a
+## read-only dialog with the block's full text. The dialog reads through a
+## callable, so while the block is still streaming it live-updates as more
+## thinking arrives.
+func _open_thought_dialog(mid: String) -> void:
+	var dlg := VibeThoughtDialog.new()
+	add_child(dlg)
+	dlg.setup_dialog(TranscriptRoles.thought_label(_thought_msg_id == mid),
+		func() -> String: return str(_thoughts_by_id.get(mid, "")))
+	dlg.popup_on_screen()
 
 # ---------------------------------------------------------------- account/budget
 
@@ -907,6 +1023,10 @@ func _display_path(p: String) -> String:
 func _on_transcript_meta_clicked(meta: Variant) -> void:
 	if not (meta is Dictionary):
 		return
+	var thought_id := str(meta.get("thought_id", ""))
+	if thought_id != "":
+		_open_thought_dialog(thought_id)
+		return
 	var p := str(meta.get("path", ""))
 	var line := int(meta.get("line", 0))
 	if p.is_empty():
@@ -935,19 +1055,30 @@ func _role_color(role: String) -> Color:
 			return COLOR_ERROR
 	return COLOR_SYS
 
+## Insert a whole blank line before an item whose mode differs from the previous
+## item's mode (e.g. You -> Vibe, Vibe -> first tool, anything -> Thought). Items
+## of the same mode — a run of tool lines, several "Thought" links — are NOT
+## separated. Must run after _close_block(), so the previous line is terminated
+## and the extra "\n" becomes an empty paragraph (the blank line).
+func _separate_mode(mode: String) -> void:
+	if _last_mode != "" and mode != _last_mode:
+		_transcript.append_text("\n")
+	_last_mode = mode
+
 func _open_block(role: String, prefix: String) -> void:
 	_close_block()
+	_separate_mode(TranscriptRoles.mode_of_role(role))
 	_transcript.push_color(_role_color(role))
 	_transcript.push_bold()
 	_transcript.append_text(prefix)
 	_transcript.pop()  # bold off; color stays active for the body text
 	_block_pushes = 1
-	if role == TranscriptRoles.ROLE_THOUGHT:
-		_transcript.push_italics()  # Godot 4 name; push_italic() does not exist
-		_block_pushes += 1
 	_block_open = true
 
 func _close_block() -> void:
+	# a thought block is closed by any other content: append its static "Thought"
+	# link line to the transcript and hide the live overlay
+	_close_thought_block()
 	if _block_open:
 		_transcript.append_text("\n")
 		for i in _block_pushes:
@@ -1052,3 +1183,6 @@ func _process(_delta: float) -> void:
 	_update_send_state()
 	# likewise keep the status-bar labels/separators in sync with their texts
 	_sync_status_bar()
+	# animate the streaming "Thinking" overlay (dots); the transcript and the
+	# buffered thought text are never touched
+	_advance_thought_anim(_delta)

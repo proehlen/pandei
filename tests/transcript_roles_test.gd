@@ -10,10 +10,11 @@ func test_update_kinds_map_to_roles() -> void:
 	assert_that(TranscriptRoles.role_for_update({})).is_equal(TranscriptRoles.ROLE_SYS)
 
 func test_prefixes_are_distinct_per_role() -> void:
+	# thoughts are not in this list: they no longer render an inline "thinking: "
+	# prefix but a clickable label line (see thought_label below)
 	var prefixes := [
 		TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_USER),
 		TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_AGENT),
-		TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_THOUGHT),
 		TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_TOOL),
 	]
 	var seen := {}
@@ -22,7 +23,25 @@ func test_prefixes_are_distinct_per_role() -> void:
 	assert_that(seen.size()).is_equal(prefixes.size())  # all distinct
 	assert_that(TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_USER)).is_equal("You: ")
 	assert_that(TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_AGENT)).is_equal("Vibe: ")
-	assert_that(TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_THOUGHT)).is_equal("thinking: ")
+
+func test_thought_label_is_thinking_while_streaming_and_thought_when_done() -> void:
+	assert_that(TranscriptRoles.thought_label(true)).is_equal("Thinking")
+	assert_that(TranscriptRoles.thought_label(false)).is_equal("Thought")
+
+func test_thought_label_animated_cycles_trailing_dots() -> void:
+	assert_that(TranscriptRoles.thought_label_animated(0)).is_equal("Thinking")
+	assert_that(TranscriptRoles.thought_label_animated(1)).is_equal("Thinking.")
+	assert_that(TranscriptRoles.thought_label_animated(2)).is_equal("Thinking..")
+	assert_that(TranscriptRoles.thought_label_animated(3)).is_equal("Thinking...")
+	assert_that(TranscriptRoles.thought_label_animated(4)).is_equal("Thinking")  # wraps
+
+func test_mode_of_role_groups_items_for_blank_line_separation() -> void:
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_USER)).is_equal("user")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_AGENT)).is_equal("agent")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_THOUGHT)).is_equal("thought")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_TOOL)).is_equal("tool")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_SYS)).is_equal("sys")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_ERROR)).is_equal("sys")
 
 func test_locations_of_extracts_tool_call_locations() -> void:
 	assert_that(TranscriptRoles.locations_of({"sessionUpdate": "tool_call"})).is_equal([])

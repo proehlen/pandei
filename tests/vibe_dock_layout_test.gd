@@ -50,3 +50,13 @@ func test_input_wraps_long_lines() -> void:
 	# box edge; the multi-line input must wrap so typed text stays visible.
 	assert_that(dock._input.wrap_mode).is_equal(TextEdit.LINE_WRAPPING_BOUNDARY)
 	dock.queue_free()
+
+func test_transcript_has_no_paragraph_separation_override() -> void:
+	# paragraph_separation was tried and reverted: it also spaced the internal
+	# lines of multiline items (they are paragraphs too), looking like
+	# line_separation. Mode separation is done with explicit blank lines instead.
+	var dock := VibeAcpDock.new()
+	dock._build_ui()
+	assert_that(dock._transcript.has_theme_constant_override("paragraph_separation")).is_false()
+	assert_that(dock._transcript.has_theme_constant_override("line_separation")).is_false()
+	dock.free()

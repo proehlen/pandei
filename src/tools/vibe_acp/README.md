@@ -67,9 +67,25 @@ browser auth.
   never triggers a call. Sections without
   text are hidden and exactly one bar separates consecutive visible sections.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
-  `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
+  `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
-  the editor. Long lines wrap.
+  the editor. Long lines wrap. A whole **blank line is inserted whenever the
+  visual "mode" changes** — `You:` / `Vibe:` / `Thought` / a run of tool lines /
+  `[sys]`-style log lines — while consecutive items of the same mode (several
+  tool lines together, several `Thought` links) stay grouped without gaps, and
+  multiline items keep their internal lines tight. **Thoughts are not inline**: thought text is
+  buffered, never appended to the chat (so long reasoning never pushes the rest
+  of the conversation up). While the agent thinks, a clickable gray `Thinking`
+  link (animated dots) sits at the bottom of the chat area; when the block
+  finishes it becomes a static `Thought` link line in the transcript. The
+  transcript is strictly append-only. Clicking either link opens the thought
+  dialog. (Note: `session/load` in current vibe-acp replays the full history as
+  `session/update`s, so a resumed session's past turns — including their
+  `Thought` links — are rendered too.)
+- **Thought dialog** — click `Thinking`/`Thought` to read the whole thought block
+  in a read-only, selectable dialog that opens scrolled to the end (and follows
+  the end while the block still streams, if you're already at the bottom). While
+  streaming, the dialog live-updates as more thinking arrives.
 - **Input** — long prompts wrap inside the multi-line box. Ctrl/Cmd+Enter
   sends. The **Send** button is enabled exactly
   when Ctrl+Enter would work (both use the same `_can_send()` check: connected,
@@ -91,6 +107,7 @@ src/tools/vibe_acp/
 ├── plugin.gd                   # EditorPlugin: adds/removes the dock
 ├── vibe_dock.gd                # the dock: header controls (Connect/Disconnect, New, Compact, Session and Mode dropdowns), transcript, input row, and the slim status bar (git branch dropdown, connection/session, turn state, token usage, separated by bars)
 ├── permission_dialog.gd / permission_text.gd   # permission-request dialog
+├── thought_dialog.gd           # read-only "thinking"/"thought" viewer behind the transcript link
 ├── new_branch_dialog.gd        # "New branch" name dialog (OK/Cancel) behind the branch dropdown's New… entry
 ├── acp_client.gd               # high-level ACP ops: initialize/new/load/list/prompt/cancel/set_mode
 ├── acp_dispatcher.gd           # routes responses / notifications / server→client requests
