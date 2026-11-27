@@ -43,10 +43,12 @@ func test_main_scene_places_enemy_at_its_design_position_with_its_own_speed() ->
 	var main: Node = auto_free(packed.instantiate())
 	var player_node: Node = main.get_node_or_null("Player")
 	(player_node as Player).move_speed = 9.0 # a different player speed must not leak into the enemy
+	var enemy_node: Node = main.get_node_or_null("Enemy")
+	(enemy_node as Enemy).set_physics_process(false) # placement check only: keep the enemy on its post instead of chasing the nearby sword
 	add_child(main) # triggers _ready
 	await get_tree().physics_frame # lets the enemy acquire its target from the "player" group
 	var player: Node = main.get_node_or_null("Player")
-	var enemy: Node = main.get_node_or_null("Enemy")
+	var enemy: Node = enemy_node
 	assert_that(player).is_not_null()
 	assert_that(enemy).is_not_null()
 	assert_that(player.is_in_group("player")).is_true()
@@ -172,6 +174,107 @@ func test_enemy_collision_capsule_mimics_the_players_wider_hand_span_capsule() -
 	assert_that(enemy_shape.radius > 0.4).is_true() # wider than the old torso-only capsule
 	assert_that(enemy_shape.height).is_equal(player_shape.height) # only the diameter grew, not the height
 	assert_that(absf(enemy_shape.height - 1.6) < 0.0001).is_true() # height unchanged (float32 from the scene)
+
+
+func test_enemy_scene_has_a_right_hand_like_the_players_and_sits_in_the_enemy_group() -> void:
+	var packed: PackedScene = load("res://src/entities/enemy/enemy.tscn")
+	var enemy: Enemy = auto_free(packed.instantiate())
+	assert_that(enemy.is_in_group("enemy")).is_true()
+	var hand: Node = enemy.get_node_or_null("SwingPivot/RightHand")
+	assert_that(hand).is_not_null()
+	assert_that((hand as Node3D).position).is_equal(Vector3(-0.55, 0.8, 0.15)) # same design pose as the player's hand
+	var placeholder: Node = enemy.get_node_or_null("SwingPivot/RightHand/Placeholder_RightHand")
+	assert_that(placeholder).is_not_null()
+	assert_that(placeholder.is_in_group("ai_placeholder")).is_true()
+	assert_that((placeholder as MeshInstance3D).mesh is SphereMesh).is_true()
+	assert_that(enemy.has_weapon()).is_false() # empty hand: no weapon yet
+
+
+func test_enemy_without_weapon_chases_a_detected_sword_and_ignores_a_closer_player() -> void:
+	var player: Player = auto_free(Player.new())
+	player.add_to_group("player")
+	add_child(player)
+	player.global_position = Vector3(2, 0, 0) # 2 m away: closer than the sword, but must be ignored
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false) # tests step compute_chase_velocity manually
+	add_child(enemy) # _ready anchors start_position at the origin and acquires the player
+	var sword: ShortSword = auto_free((load("res://src/entities/weapon/short_sword.tscn") as PackedScene).instantiate())
+	sword.set_physics_process(false) # no self-pickup while the test steps things manually
+	sword.set_process(false)
+	add_child(sword)
+	sword.global_position = Vector3(0, 0, 5) # 5 m away: inside the 8 m detection radius
+	assert_that(sword.is_in_group("weapon")).is_true()
+	assert_that(enemy.has_weapon()).is_false()
+	assert_that(enemy.find_weapon_target()).is_equal(sword)
+	assert_that(enemy.current_chase_target()).is_equal(sword) # the sword, not the closer player
+	var chase: Vector3 = enemy.compute_chase_velocity()
+	assert_that(absf(chase.length() - enemy.move_speed) < 0.0001).is_true()
+	assert_that(chase.z > 0.0 and absf(chase.x) < 0.0001).is_true() # straight toward the sword, not the player at +X
+
+
+func test_enemy_prefers_the_nearest_detected_weapon() -> void:
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy) # start_position at the origin
+	var near_sword: ShortSword = auto_free((load("res://src/entities/weapon/short_sword.tscn") as PackedScene).instantiate())
+	near_sword.set_physics_process(false)
+	near_sword.set_process(false)
+	add_child(near_sword)
+	near_sword.global_position = Vector3(3, 0, 0)
+	var far_sword: ShortSword = auto_free((load("res://src/entities/weapon/short_sword.tscn") as PackedScene).instantiate())
+	far_sword.set_physics_process(false)
+	far_sword.set_process(false)
+	add_child(far_sword)
+	far_sword.global_position = Vector3(0, 0, 6) # both inside the 8 m detection radius
+	assert_that(enemy.find_weapon_target()).is_equal(near_sword)
+	var chase: Vector3 = enemy.compute_chase_velocity()
+	assert_that(chase.x > 0.0 and absf(chase.z) < 0.0001).is_true() # toward the nearer sword
+
+
+func test_enemy_ignores_weapons_beyond_detection_radius_and_chases_the_player() -> void:
+	var player: Player = auto_free(Player.new())
+	player.add_to_group("player")
+	add_child(player)
+	player.global_position = Vector3(0, 0, 5) # 5 m: inside detection
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	enemy.target = player
+	var sword: ShortSword = auto_free((load("res://src/entities/weapon/short_sword.tscn") as PackedScene).instantiate())
+	sword.set_physics_process(false)
+	sword.set_process(false)
+	add_child(sword)
+	sword.global_position = Vector3(0, 0, 9) # 9 m: outside the 8 m detection radius
+	assert_that(enemy.find_weapon_target()).is_null()
+	assert_that(enemy.current_chase_target()).is_equal(player)
+	var chase: Vector3 = enemy.compute_chase_velocity()
+	assert_that(chase.z > 0.0 and absf(chase.x) < 0.0001).is_true() # straight at the player
+
+
+func test_enemy_with_equipped_sword_chases_the_player_under_the_existing_limits() -> void:
+	var player: Player = auto_free(Player.new())
+	player.add_to_group("player")
+	add_child(player)
+	player.global_position = Vector3(0, 0, 5) # inside detection, inside the leash
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	enemy.target = player
+	var sword: ShortSword = auto_free((load("res://src/entities/weapon/short_sword.tscn") as PackedScene).instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.global_position = Vector3(0, 0, 3) # detected, but the enemy already has a weapon: irrelevant now
+	sword.equip(enemy) # picked up into the enemy's RightHand
+	assert_that(enemy.has_weapon()).is_true()
+	assert_that(sword.get_parent()).is_equal(enemy.get_node("SwingPivot/RightHand"))
+	assert_that(enemy.current_chase_target()).is_equal(player) # the detected sword no longer distracts it
+	var chase: Vector3 = enemy.compute_chase_velocity()
+	assert_that(absf(chase.length() - enemy.move_speed) < 0.0001).is_true()
+	assert_that(chase.z > 0.0 and absf(chase.x) < 0.0001).is_true() # straight at the player
+	enemy.global_position = Vector3(0, 0, 10) # the enemy has chased 10 m away from its post
+	player.global_position = Vector3(0, 0, 17) # 7 m from the enemy (inside detection) but 17 m from start: beyond the leash
+	assert_that(enemy.compute_chase_velocity()).is_equal(Vector3.ZERO) # the existing give-up limit still applies
 
 
 func test_chasing_enemy_stops_at_capsule_contact_instead_of_reaching_the_player() -> void:
