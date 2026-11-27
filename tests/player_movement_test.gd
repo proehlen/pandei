@@ -192,3 +192,131 @@ func test_ground_grid_overlays_tracked_checkerboard_placeholder_tiles() -> void:
 		assert_that(material).is_not_null()
 		colors[material.albedo_color] = true
 	assert_that(colors.size()).is_equal(2) # checkerboard uses exactly two flat colors
+
+
+func test_yaw_toward_matches_the_facing_convention() -> void:
+	assert_that(absf(Player.yaw_toward(Vector3.ZERO, Vector3(0, 0, 1)) - 0.0) < 0.0001).is_true() # +Z: yaw 0
+	assert_that(absf(Player.yaw_toward(Vector3.ZERO, Vector3(1, 0, 0)) - PI / 2.0) < 0.0001).is_true() # +X: yaw PI/2
+	assert_that(absf(absf(Player.yaw_toward(Vector3.ZERO, Vector3(0, 0, -1))) - PI) < 0.0001).is_true() # -Z: +/-PI
+	assert_that(absf(Player.yaw_toward(Vector3.ZERO, Vector3(-1, 0, 0)) + PI / 2.0) < 0.0001).is_true() # -X: yaw -PI/2
+	# a height difference must not matter: facing is yaw-only on the XZ plane
+	assert_that(absf(Player.yaw_toward(Vector3(1, 0, 1), Vector3(1, 5, 4)) - 0.0) < 0.0001).is_true()
+
+
+func test_yaw_toward_is_nan_when_points_share_xz_position() -> void:
+	assert_that(is_nan(Player.yaw_toward(Vector3(2, 0, 3), Vector3(2, 0, 3)))).is_true()
+	assert_that(is_nan(Player.yaw_toward(Vector3(2, 0, 3), Vector3(2, 9, 3)))).is_true() # same XZ, different height
+
+
+func test_ray_crosses_plane_ahead_only_for_rays_that_hit_the_plane_in_front() -> void:
+	var origin := Vector3(0, 10, -8)
+	assert_that(Player.ray_crosses_plane_ahead(origin, Vector3(0, -1, 0.5), 0.0)).is_true()
+	assert_that(Player.ray_crosses_plane_ahead(origin, Vector3(1, 0, 0), 0.0)).is_false() # parallel to the plane
+	assert_that(Player.ray_crosses_plane_ahead(origin, Vector3(0, 1, 0), 0.0)).is_false() # pointing away from the plane
+	assert_that(Player.ray_crosses_plane_ahead(Vector3(0, -5, 0), Vector3(0, -1, 0), 0.0)).is_false() # plane behind the origin
+
+
+func test_ray_plane_intersection_lands_on_the_plane() -> void:
+	var origin := Vector3(0, 10, -8)
+	var point := Player.ray_plane_intersection(origin, Vector3(0, -1, 0.5), 0.0)
+	assert_that(absf(point.y - 0.0) < 0.0001).is_true()
+	assert_that(absf(point.x - 0.0) < 0.0001).is_true()
+	assert_that(absf(point.z - (-3.0)) < 0.0001).is_true() # t = 10: origin.z + 0.5 * 10
+	var raised := Player.ray_plane_intersection(origin, Vector3(0.25, -1, 0.0), 2.0)
+	assert_that(absf(raised.y - 2.0) < 0.0001).is_true()
+	assert_that(absf(raised.x - 2.0) < 0.0001).is_true() # t = 8: 0.25 * 8
+
+
+func test_face_toward_screen_position_locks_yaw_toward_the_clicked_world_point() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	main.call("follow_player") # pins the fixed camera transform now instead of on the next frame
+	var player: Player = main.get_node("Player")
+	var camera: Camera3D = main.get_node("Camera3D")
+	# clicking a world point in front of the player (+Z, its facing at yaw 0)
+	var front := player.global_position + Vector3(0, 0, 5)
+	player.face_toward_screen_position(camera.unproject_position(front))
+	assert_that(absf(player._attack_facing_yaw - 0.0) < 0.001).is_true()
+	# clicking behind the player (-Z) locks a 180-degree turn
+	var behind := player.global_position + Vector3(0, 0, -5)
+	player.face_toward_screen_position(camera.unproject_position(behind))
+	assert_that(absf(absf(player._attack_facing_yaw) - PI) < 0.001).is_true()
+	# clicking to the player's right (+X) locks yaw PI/2
+	var right := player.global_position + Vector3(5, 0, 0)
+	player.face_toward_screen_position(camera.unproject_position(right))
+	assert_that(absf(player._attack_facing_yaw - PI / 2.0) < 0.001).is_true()
+
+
+func test_face_toward_screen_position_does_nothing_without_a_camera() -> void:
+	var player: Player = auto_free(Player.new())
+	add_child(player) # no camera in this viewport
+	player._attack_facing_yaw = 0.7
+	player.face_toward_screen_position(Vector2(100, 100))
+	assert_that(absf(player._attack_facing_yaw - 0.7) < 0.0001).is_true() # lock unchanged
+
+
+func test_attack_facing_lock_turns_toward_the_click_while_movement_continues() -> void:
+	var player: Player = auto_free(Player.new())
+	player.set_physics_process(false) # tests step _physics_process manually
+	add_child(player)
+	Input.action_press("move_right") # travel +X at zero camera yaw; travel facing yaw PI/2
+	player._attack_facing_yaw = PI # as if the player clicked behind itself (-Z)
+	player._physics_process(1.0 / 60.0)
+	var turn := clampf(player.turn_speed / 60.0, 0.0, 1.0)
+	assert_that(absf(player.rotation.y - lerp_angle(0.0, PI, turn)) < 0.001).is_true() # turned toward the click...
+	assert_that(absf(player.rotation.y - PI / 2.0) > 0.3).is_true() # ...not toward the travel direction
+	assert_that(player.velocity.x > 0.0).is_true() # travel unaffected by the lock
+	for i in 60:
+		player._physics_process(1.0 / 60.0)
+	assert_that(absf(angle_difference(player.rotation.y, PI)) < 0.05).is_true() # settled facing the click: a 180-degree turn
+	assert_that(absf(player.velocity.x - player.move_speed) < 0.01).is_true() # still moving at full speed
+	player.release_attack_facing()
+	player._physics_process(1.0 / 60.0)
+	assert_that(absf(angle_difference(player.rotation.y, PI / 2.0)) < absf(angle_difference(PI, PI / 2.0))).is_true() # lock released: facing tracks travel again
+	Input.action_release("move_right")
+
+
+func test_attack_facing_lock_applies_while_idle_and_facing_holds_still_after_release() -> void:
+	var player: Player = auto_free(Player.new())
+	player.set_physics_process(false) # tests step _physics_process manually
+	add_child(player)
+	player._attack_facing_yaw = PI / 2.0
+	player._physics_process(1.0 / 60.0)
+	assert_that(player.rotation.y > 0.0).is_true() # turned toward the lock without any movement input
+	for i in 60:
+		player._physics_process(1.0 / 60.0)
+	assert_that(absf(angle_difference(player.rotation.y, PI / 2.0)) < 0.05).is_true()
+	player.release_attack_facing()
+	var before := player.rotation.y
+	player._physics_process(1.0 / 60.0)
+	assert_that(player.rotation.y).is_equal(before) # idle without a lock: facing holds still
+
+
+func test_player_settles_exactly_on_the_facing_target_once_within_one_turn_step() -> void:
+	var player: Player = auto_free(Player.new())
+	player.set_physics_process(false) # tests step _physics_process manually
+	add_child(player)
+	player._attack_facing_yaw = 1.0
+	for i in 60:
+		player._physics_process(1.0 / 60.0)
+	assert_that(player.rotation.y).is_equal(1.0) # snapped exactly onto the lock, not just close
+	assert_that(player.is_turning_to_attack_target()).is_false()
+	Input.action_press("move_right")
+	player.release_attack_facing()
+	for i in 60:
+		player._physics_process(1.0 / 60.0)
+	Input.action_release("move_right")
+	assert_that(absf(player.rotation.y - PI / 2.0) < 0.0001).is_true() # travel facing settles exactly too
+
+
+func test_is_turning_to_attack_target_reflects_whether_the_lock_is_set_and_reached() -> void:
+	var player: Player = auto_free(Player.new())
+	player.set_physics_process(false) # tests step _physics_process manually
+	add_child(player)
+	assert_that(player.is_turning_to_attack_target()).is_false() # no lock
+	player._attack_facing_yaw = PI / 2.0
+	assert_that(player.is_turning_to_attack_target()).is_true() # locked, not yet faced
+	for i in 60:
+		player._physics_process(1.0 / 60.0)
+	assert_that(player.is_turning_to_attack_target()).is_false() # turned to face the click
