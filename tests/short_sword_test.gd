@@ -343,3 +343,105 @@ func test_main_scene_player_walks_over_sword_and_equips_it() -> void:
 	assert_that(blade.y > 0.9).is_true() # equipped blade points up, ready for combat
 	var thin_axis := (blade_node.global_transform.basis * Vector3.UP).normalized()
 	assert_that(absf(thin_axis.y) < 0.01).is_true() # edge horizontal in the hand, not twisted
+
+
+func test_start_swing_returns_whether_a_swing_started() -> void:
+	var sword: ShortSword = auto_free(ShortSword.new())
+	add_child(sword)
+	assert_that(sword.start_swing()).is_false() # not equipped: no swing
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	add_child(player)
+	sword.equip(player)
+	assert_that(sword.start_swing()).is_true() # equipped with a SwingPivot: swing starts
+	assert_that(sword._swing_time).is_equal(0.0)
+
+
+func test_start_swing_alone_leaves_the_holders_facing_free() -> void:
+	# only a click aims; a programmatic swing must not change facing
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	add_child(player)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(player)
+	sword.start_swing()
+	assert_that(sword._swing_time >= 0.0).is_true()
+	assert_that(is_nan(player._attack_facing_yaw)).is_true() # no click: no facing lock
+
+
+func test_left_click_without_an_equipped_sword_neither_swings_nor_changes_facing() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	add_child(player)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = Vector2(100, 100)
+	sword._unhandled_input(click)
+	assert_that(sword._swing_time < 0.0).is_true() # not equipped: no swing
+	assert_that(is_nan(player._attack_facing_yaw)).is_true() # and no facing lock
+
+
+func test_left_click_aims_the_holder_at_the_clicked_point_and_releases_the_lock_when_the_swing_ends() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	main.call("follow_player") # pins the fixed camera transform now
+	var player: Player = main.get_node("Player")
+	var camera: Camera3D = main.get_node("Camera3D")
+	var sword: ShortSword = main.get_node("ShortSword")
+	sword.set_process(false) # tests step _process manually
+	sword.set_physics_process(false)
+	sword.equip(player)
+	# click a world point behind the player (-Z): a 180-degree turn
+	var behind := player.global_position + Vector3(0, 0, -5)
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = camera.unproject_position(behind)
+	sword._unhandled_input(click)
+	assert_that(sword._swing_time >= 0.0).is_true() # the click still starts the swing
+	assert_that(absf(absf(player._attack_facing_yaw) - PI) < 0.001).is_true() # and locks facing onto the clicked point
+	sword._process(sword.swing_duration / 2.0)
+	assert_that(is_nan(player._attack_facing_yaw)).is_false() # the lock is held mid-swing
+	sword._process(sword.swing_duration / 2.0 + 0.01)
+	assert_that(sword._swing_time < 0.0).is_true() # swing over
+	assert_that(is_nan(player._attack_facing_yaw)).is_true() # lock released once the swing is over
+
+
+func test_player_can_evade_while_swinging_at_a_clicked_point_behind_it() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	main.call("follow_player")
+	var player: Player = main.get_node("Player")
+	var camera: Camera3D = main.get_node("Camera3D")
+	var sword: ShortSword = main.get_node("ShortSword")
+	sword.set_process(false) # hold the swing mid-arc; the facing lock stays active
+	sword.set_physics_process(false)
+	sword.equip(player)
+	var behind := player.global_position + Vector3(0, 0, -5)
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = camera.unproject_position(behind)
+	sword._unhandled_input(click)
+	Input.action_press("move_right") # camera yaw PI: D walks -X
+	for i in 30:
+		await get_tree().physics_frame
+	Input.action_release("move_right")
+	assert_that(sword._swing_time >= 0.0).is_true() # still mid-swing
+	assert_that(player.velocity.x < -5.0).is_true() # evading at full speed, unaffected by the facing turn
+	assert_that(absf(angle_difference(player.rotation.y, PI)) < 0.1).is_true() # turned 180 degrees to face the click
