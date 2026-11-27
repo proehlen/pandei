@@ -229,6 +229,10 @@ func _build_ui() -> void:
 	_transcript.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # wrap long lines on small screens
 	_transcript.scroll_following = true
 	_transcript.selection_enabled = true
+	# each role line / "Thought" link is one paragraph; give paragraphs a small
+	# visible gap (half a line height) so lines read as separate blocks. In Godot 4
+	# this spacing is a theme constant, not a property.
+	_transcript.add_theme_constant_override("paragraph_separation", int(round(_half_line_height_px())))
 	_transcript.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_transcript.meta_clicked.connect(_on_transcript_meta_clicked)
 	add_child(_transcript)
@@ -269,6 +273,18 @@ func _build_ui() -> void:
 	btns.add_child(_stop_btn)
 
 	_build_status_bar()
+
+## Half a line height of the default theme font, for the transcript's
+## "paragraph_separation" theme constant (RichTextLabel exposes paragraph spacing
+## only as a theme constant in Godot 4). Resolved through the theme (with a
+## font-size fallback) so the gap scales with the editor font size in light and
+## dark themes alike.
+func _half_line_height_px() -> float:
+	var size := get_theme_default_font_size()
+	var font := get_theme_default_font()
+	if font != null:
+		return font.get_height(size) * 0.5
+	return float(size) * 0.5
 
 ## Slim status row beneath the prompt input: git branch dropdown +
 ## connection/session, turn and token-usage labels separated by vertical bars.

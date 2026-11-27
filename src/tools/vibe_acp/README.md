@@ -69,7 +69,8 @@ browser auth.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
   `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
-  the editor. Long lines wrap. **Thoughts are not inline**: thought text is
+  the editor. Long lines wrap, and paragraphs get a small visible gap
+  (its `paragraph_separation` theme constant set to half a line height). **Thoughts are not inline**: thought text is
   buffered, never appended to the chat (so long reasoning never pushes the rest
   of the conversation up). While the agent thinks, a clickable gray `Thinking`
   link (animated dots) sits at the bottom of the chat area; when the block
