@@ -37,3 +37,27 @@ func test_push_italics_exists() -> void:
 	# compile/runtime guard: the method the dock relies on must exist
 	assert_that(ClassDB.class_has_method("RichTextLabel", "push_italics")).is_true()
 	assert_that(ClassDB.class_has_method("RichTextLabel", "push_italic")).is_false()
+
+func test_unterminated_last_paragraph_can_be_rewritten_in_place() -> void:
+	# the dock renames the streaming "thinking" label to "thought" (and animates
+	# its dots) by removing the unterminated last paragraph and re-appending just
+	# the label — guard that mechanism, including that only the label is replaced
+	var rtl := RichTextLabel.new()
+	rtl.bbcode_enabled = false
+	add_child(rtl)
+	rtl.append_text("Vibe: hello\n")
+	rtl.push_meta({"thought_id": "m1"})
+	rtl.push_underline()
+	rtl.append_text("thinking")
+	rtl.pop()
+	rtl.pop()
+	assert_that(rtl.get_parsed_text()).is_equal("Vibe: hello\nthinking")
+	rtl.remove_paragraph(rtl.get_paragraph_count() - 1)
+	rtl.push_meta({"thought_id": "m1"})
+	rtl.push_underline()
+	rtl.append_text("thought")
+	rtl.pop()
+	rtl.pop()
+	rtl.append_text("\n")
+	assert_that(rtl.get_parsed_text()).is_equal("Vibe: hello\nthought\n")
+	rtl.queue_free()

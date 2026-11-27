@@ -67,9 +67,15 @@ browser auth.
   never triggers a call. Sections without
   text are hidden and exactly one bar separates consecutive visible sections.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
-  `thinking:` (gray italic), `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
+  `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
-  the editor. Long lines wrap.
+  the editor. Long lines wrap. **Thoughts are not inline**: each thought block
+  adds one clickable gray `thinking` link (with animated dots while it streams)
+  that is renamed to `thought` when the block finishes — clicking it opens a
+  dialog with the full thinking text (live-updating while still streaming), so
+  long reasoning never pushes the rest of the chat up.
+- **Thought dialog** — click a `thinking`/`thought` link in the transcript to
+  read the whole thought block in a read-only, selectable dialog.
 - **Input** — long prompts wrap inside the multi-line box. Ctrl/Cmd+Enter
   sends. The **Send** button is enabled exactly
   when Ctrl+Enter would work (both use the same `_can_send()` check: connected,
@@ -91,6 +97,7 @@ src/tools/vibe_acp/
 ├── plugin.gd                   # EditorPlugin: adds/removes the dock
 ├── vibe_dock.gd                # the dock: header controls (Connect/Disconnect, New, Compact, Session and Mode dropdowns), transcript, input row, and the slim status bar (git branch dropdown, connection/session, turn state, token usage, separated by bars)
 ├── permission_dialog.gd / permission_text.gd   # permission-request dialog
+├── thought_dialog.gd           # read-only "thinking"/"thought" viewer behind the transcript link
 ├── new_branch_dialog.gd        # "New branch" name dialog (OK/Cancel) behind the branch dropdown's New… entry
 ├── acp_client.gd               # high-level ACP ops: initialize/new/load/list/prompt/cancel/set_mode
 ├── acp_dispatcher.gd           # routes responses / notifications / server→client requests
