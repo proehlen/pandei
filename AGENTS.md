@@ -43,6 +43,10 @@ When prototyping scenes or entities before human assets exist in `assets_quarant
   godot --headless --path . --import
   godot --headless --path . -s addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests/ --ignoreHeadlessMode
   ```
+- Run the GDScript lint before committing any change; it must print `LINT PASS` (it exits 1 on any warning or error, e.g. shadowed variables — plain `--check-only` does NOT show these, `--check-only --debug --script` does):
+  ```bash
+  bash src/tools/lint.sh
+  ```
 
 ## Git & Branching Rules (Strict)
 - Never commit to, merge into, or rebase main.

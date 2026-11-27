@@ -94,7 +94,7 @@ func test_animation_updates_only_the_overlay_link_never_the_transcript() -> void
 	dock._build_ui()
 	dock._render_update("sid", _agent("a1", "earlier answer"))
 	dock._close_block()
-	var before := dock._transcript.get_parsed_text()
+	var before_text := dock._transcript.get_parsed_text()
 	dock._render_update("sid", _thought("m1", "buffered text"))
 	dock._advance_thought_anim(VibeAcpDock.THOUGHT_ANIM_INTERVAL_SEC)
 	assert_that(dock._thought_link.text).is_equal("Thinking.")
@@ -104,7 +104,7 @@ func test_animation_updates_only_the_overlay_link_never_the_transcript() -> void
 	assert_that(dock._thought_link.text).is_equal("Thinking..")
 	# the transcript is completely untouched by the animation (no line eating),
 	# and the buffer was never sent to the transcript
-	assert_that(dock._transcript.get_parsed_text()).is_equal(before)
+	assert_that(dock._transcript.get_parsed_text()).is_equal(before_text)
 	assert_that(dock._transcript.get_parsed_text().contains("buffered text")).is_false()
 	assert_that(dock._thoughts_by_id["m1"]).is_equal("buffered text")
 	dock.free()

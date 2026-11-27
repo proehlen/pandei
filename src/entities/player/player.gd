@@ -35,9 +35,9 @@ static func input_to_velocity(input: Vector2, speed: float, camera_yaw: float = 
 	return Vector3(direction.x * speed, 0.0, direction.z * speed)
 
 ## Horizontal velocity after easing `current` toward `target` by at most
-## `acceleration * delta` meters. Pure function so it stays unit-testable.
-static func ease_velocity(current: Vector3, target: Vector3, acceleration: float, delta: float) -> Vector3:
-	return current.move_toward(target, acceleration * delta)
+## `accel * delta` meters. Pure function so it stays unit-testable.
+static func ease_velocity(current: Vector3, target: Vector3, accel: float, delta: float) -> Vector3:
+	return current.move_toward(target, accel * delta)
 
 ## Horizontal yaw from `from` to `to` on the XZ plane, matching the
 ## rotation.y = atan2(direction.x, direction.z) facing convention. Returns NAN

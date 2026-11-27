@@ -129,9 +129,9 @@ func test_stop_sends_cancel_notification_once_and_shows_busy() -> void:
 	var dock: VibeAcpDock = f["dock"]
 	_ready_session(f)
 	dock._send_text("hi")
-	var before: int = f["transport"].written.size()
+	var before_count: int = f["transport"].written.size()
 	dock._on_stop()
-	var cancels: Array = f["transport"].written.slice(before).filter(
+	var cancels: Array = f["transport"].written.slice(before_count).filter(
 		func(m: Dictionary) -> bool: return m.get("method", "") == "session/cancel")
 	assert_that(cancels).has_size(1)
 	assert_that(cancels[0].has("id")).is_false()  # notification: no response expected

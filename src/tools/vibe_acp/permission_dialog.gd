@@ -84,9 +84,9 @@ func _init() -> void:
 
 ## ScrollContainer that bounds its content: wraps text instead of h-scrolling
 ## and never lets the content inflate the dialog's minimum height.
-func _bounded_scroll(content: Control, min_size: Vector2) -> ScrollContainer:
+func _bounded_scroll(content: Control, min_scroll_size: Vector2) -> ScrollContainer:
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = min_size
+	scroll.custom_minimum_size = min_scroll_size
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -139,9 +139,9 @@ static func split_options(options: Array) -> Dictionary:
 
 static func _is_reject_option(o: Dictionary) -> bool:
 	var kind := str(o.get("kind", "")).to_lower()
-	var name := str(o.get("name", "")).to_lower()
+	var opt_name := str(o.get("name", "")).to_lower()
 	return kind.contains("reject") or kind.contains("deny") \
-		or name.contains("reject") or name.contains("deny")
+		or opt_name.contains("reject") or opt_name.contains("deny")
 
 ## popup_centered() plus clamping into the screen: the OK button must always be
 ## reachable without resizing/dragging the window first.

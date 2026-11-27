@@ -55,16 +55,16 @@ func setup_dialog(existing_branches: PackedStringArray) -> void:
 
 ## Enable OK only for a usable name; the hint says why not.
 func _validate() -> void:
-	var name := _line_edit.text.strip_edges()
+	var branch_name := _line_edit.text.strip_edges()
 	var why := ""
-	if name.is_empty():
+	if branch_name.is_empty():
 		why = ""
-	elif not GitBranch.is_valid_branch_name(name):
+	elif not GitBranch.is_valid_branch_name(branch_name):
 		why = "not a valid branch name"
-	elif _existing.has(name):
-		why = "branch '%s' already exists" % name
+	elif _existing.has(branch_name):
+		why = "branch '%s' already exists" % branch_name
 	_hint.text = why
-	get_ok_button().disabled = not why.is_empty() or name.is_empty()
+	get_ok_button().disabled = not why.is_empty() or branch_name.is_empty()
 
 func _on_confirmed() -> void:
 	if _done:

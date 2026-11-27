@@ -14,9 +14,9 @@ func _make_dialog(existing: PackedStringArray = PackedStringArray()) -> VibeNewB
 
 ## Set the name like a user typing would: in Godot 4 a programmatic
 ## LineEdit.text set does NOT emit text_changed, so emit it explicitly.
-func _set_name(dlg: VibeNewBranchDialog, name: String) -> void:
-	dlg._line_edit.text = name
-	dlg._line_edit.text_changed.emit(name)
+func _set_name(dlg: VibeNewBranchDialog, branch_name: String) -> void:
+	dlg._line_edit.text = branch_name
+	dlg._line_edit.text_changed.emit(branch_name)
 
 
 func test_ok_disabled_while_name_empty() -> void:
