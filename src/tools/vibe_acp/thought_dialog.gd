@@ -79,7 +79,10 @@ func _refresh() -> void:
 
 func _at_bottom() -> bool:
 	var sb := _label.get_v_scroll_bar()
-	return sb.max_value - sb.value <= 2.0
+	# a ScrollBar scrolls in [0, max_value - page]: the bottom is reached at
+	# value == max_value - page. When the text fits the viewport, max <= page
+	# and this is trivially true.
+	return sb.max_value - sb.page - sb.value <= 2.0
 
 ## popup_centered() clamped into the screen. No-op when out of tree (headless
 ## tests add the dialog to an out-of-tree dock and never show it).

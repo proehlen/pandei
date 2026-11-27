@@ -54,6 +54,43 @@ func test_dialog_live_updates_while_the_block_streams() -> void:
 	dlg.queue_free()
 	await get_tree().process_frame
 
+func test_dialog_follows_new_text_only_when_already_at_the_bottom() -> void:
+	# long enough to overflow the dialog's text area so the scroll bar has range
+	var long_text := ""
+	for i in 200:
+		long_text += "streaming thought line %d with some text that wraps around\n" % i
+	var state := {"text": long_text}
+	var dlg := VibeThoughtDialog.new()
+	add_child(dlg)
+	dlg.size = Vector2i(700, 500)  # unpopped window: give it a real size so the label overflows
+	await get_tree().process_frame
+	await get_tree().process_frame
+	dlg.setup_dialog("Thinking", func() -> String: return str(state["text"]))
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var sb := dlg._label.get_v_scroll_bar()
+	# the open-time scroll-to-end ran and left us at the bottom
+	assert_that(dlg._at_bottom()).is_true()
+	# new thinking arrives while at the bottom -> the view follows to the new end
+	state["text"] = long_text + "fresh tail line\n"
+	dlg._refresh()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_that(dlg._label.get_parsed_text()).contains("fresh tail line")
+	assert_that(dlg._at_bottom()).is_true()
+	# user scrolls back up: new text must NOT yank the view back down
+	sb.value = 0.0
+	await get_tree().process_frame
+	state["text"] = long_text + "fresh tail line\nsecond tail line\n"
+	dlg._refresh()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_that(dlg._label.get_parsed_text()).contains("second tail line")
+	assert_that(dlg._at_bottom()).is_false()
+	assert_that(sb.value).is_equal(0.0)
+	dlg.queue_free()
+	await get_tree().process_frame
+
 func test_empty_thought_shows_a_placeholder() -> void:
 	var dlg := VibeThoughtDialog.new()
 	add_child(dlg)
