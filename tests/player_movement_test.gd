@@ -288,9 +288,9 @@ func test_attack_facing_lock_applies_while_idle_and_facing_holds_still_after_rel
 		player._physics_process(1.0 / 60.0)
 	assert_that(absf(angle_difference(player.rotation.y, PI / 2.0)) < 0.05).is_true()
 	player.release_attack_facing()
-	var before := player.rotation.y
+	var before_yaw := player.rotation.y
 	player._physics_process(1.0 / 60.0)
-	assert_that(player.rotation.y).is_equal(before) # idle without a lock: facing holds still
+	assert_that(player.rotation.y).is_equal(before_yaw) # idle without a lock: facing holds still
 
 
 func test_player_settles_exactly_on_the_facing_target_once_within_one_turn_step() -> void:

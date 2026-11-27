@@ -704,7 +704,7 @@ func _on_sessions_listed(sessions: Array) -> void:
 	# select() does not emit item_selected, so this never triggers a load.
 	_session_option.select(current_idx)
 
-func _on_prompt_finished(_sid: String, result: Variant, error: Variant) -> void:
+func _on_prompt_finished(_sid: String, _result: Variant, error: Variant) -> void:
 	_busy = false
 	_cancelling = false  # a pending stop is resolved once the turn actually ends
 	_close_block()
@@ -804,9 +804,9 @@ func _render_update(_sid: String, update: Dictionary) -> void:
 						_title_label.text = "Mistral Vibe — " + t
 				"config_option_update":
 					# the model (or mode) config changed server-side (e.g. /model)
-					var name := _model_name_from_config_options(update.get("configOptions", []))
-					if name != "":
-						_model_name = name
+					var model_name := _model_name_from_config_options(update.get("configOptions", []))
+					if model_name != "":
+						_model_name = model_name
 						_refresh_model_label()
 				"plan":
 					for entry in update.get("entries", []):
@@ -917,9 +917,9 @@ static func _model_name_from_config_options(options: Variant) -> String:
 			var current := str(opt.get("currentValue", ""))
 			for o in opt.get("options", []):
 				if o is Dictionary and str(o.get("value", "")) == current:
-					var name := str(o.get("name", ""))
-					if name != "":
-						return name
+					var opt_name := str(o.get("name", ""))
+					if opt_name != "":
+						return opt_name
 			return current
 	return ""
 

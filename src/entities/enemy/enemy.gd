@@ -39,10 +39,10 @@ static func chase_velocity(from: Vector3, to: Vector3, speed: float) -> Vector3:
 	return to_target.normalized() * speed
 
 
-## Horizontal velocity after easing `current` toward `target` by at most
-## `acceleration * delta` meters. Pure function so it stays unit-testable.
-static func ease_velocity(current: Vector3, target: Vector3, acceleration: float, delta: float) -> Vector3:
-	return current.move_toward(target, acceleration * delta)
+## Horizontal velocity after easing `current` toward `target_velocity` by at most
+## `accel * delta` meters. Pure function so it stays unit-testable.
+static func ease_velocity(current: Vector3, target_velocity: Vector3, accel: float, delta: float) -> Vector3:
+	return current.move_toward(target_velocity, accel * delta)
 
 
 func _ready() -> void:

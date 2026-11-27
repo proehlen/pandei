@@ -61,8 +61,8 @@ func test_initialize_sends_protocol_v1_and_emits_signal() -> void:
 func test_load_or_new_falls_back_to_new_session() -> void:
 	var f := _make_client()
 	var client: AcpClient = f["client"]
-	var ready: Array = []
-	client.session_ready.connect(func(sid: String, info: Dictionary) -> void: ready.append([sid, info]))
+	var ready_events: Array = []
+	client.session_ready.connect(func(sid: String, info: Dictionary) -> void: ready_events.append([sid, info]))
 
 	client.load_or_new("dead-session-id")
 	var sent: Array = f["transport"].written
@@ -76,24 +76,24 @@ func test_load_or_new_falls_back_to_new_session() -> void:
 	# server rejects the load -> client must fall back to session/new
 	f["transport"].inbox.append({"jsonrpc": "2.0", "id": sent[0]["id"], "error": {"code": -32602, "message": "no such session"}})
 	client.pump()
-	assert_that(ready).is_empty()
+	assert_that(ready_events).is_empty()
 	assert_that(f["transport"].written).has_size(2)
 	assert_that(f["transport"].written[1]["method"]).is_equal("session/new")
 
 	f["transport"].inbox.append({"jsonrpc": "2.0", "id": f["transport"].written[1]["id"],
 		"result": {"sessionId": "abc-123", "modes": {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}}})
 	client.pump()
-	assert_that(ready).has_size(1)
-	assert_that(ready[0][0]).is_equal("abc-123")
-	assert_that(ready[0][1]["modes"]["currentModeId"]).is_equal("ask")
+	assert_that(ready_events).has_size(1)
+	assert_that(ready_events[0][0]).is_equal("abc-123")
+	assert_that(ready_events[0][1]["modes"]["currentModeId"]).is_equal("ask")
 	assert_that(client.session_id).is_equal("abc-123")
 
 func test_load_or_new_accepts_load_result_without_session_id() -> void:
 	# vibe-acp's session/load response omits sessionId; the requested id is the session
 	var f := _make_client()
 	var client: AcpClient = f["client"]
-	var ready: Array = []
-	client.session_ready.connect(func(sid: String, _info: Dictionary) -> void: ready.append(sid))
+	var ready_events: Array = []
+	client.session_ready.connect(func(sid: String, _info: Dictionary) -> void: ready_events.append(sid))
 
 	client.load_or_new("sess-to-resume")
 	var sent: Array = f["transport"].written
@@ -101,7 +101,7 @@ func test_load_or_new_accepts_load_result_without_session_id() -> void:
 	f["transport"].inbox.append({"jsonrpc": "2.0", "id": sent[0]["id"],
 		"result": {"modes": {"currentModeId": "ask"}, "configOptions": []}})  # no sessionId key
 	client.pump()
-	assert_that(ready).is_equal(["sess-to-resume"])
+	assert_that(ready_events).is_equal(["sess-to-resume"])
 	assert_that(client.session_id).is_equal("sess-to-resume")
 
 func test_prompt_streams_updates_then_finishes() -> void:

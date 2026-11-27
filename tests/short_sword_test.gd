@@ -130,7 +130,7 @@ func test_process_spins_sword_slowly_around_vertical_keeping_lean() -> void:
 		var blade := (sword.transform.basis * ShortSword.loot_basis(sword.tilt_angle) * Vector3.RIGHT).normalized()
 		assert_that(absf(blade.y - cos(sword.tilt_angle)) < 0.001).is_true() # constant lean off vertical
 		directions[blade] = true
-	assert_that(directions.size() > steps / 2).is_true() # actually spinning, not static
+	assert_that(directions.size() > steps / 2.0).is_true() # actually spinning, not static
 
 
 func test_is_within_pickup_boundary() -> void:

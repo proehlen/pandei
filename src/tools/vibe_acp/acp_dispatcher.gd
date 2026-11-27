@@ -35,9 +35,9 @@ func register_notification_handler(method: String, handler: Callable) -> void:
 
 ## send_fn: Callable(Dictionary) used to write replies onto the wire.
 func handle_message(msg: Dictionary, send_fn: Callable) -> void:
-	var has_method := msg.has("method")
+	var msg_has_method := msg.has("method")
 	var has_id := msg.has("id")
-	if has_method and has_id:
+	if msg_has_method and has_id:
 		var method := str(msg["method"])
 		var id: int = msg["id"]
 		var params: Variant = msg.get("params", {})
@@ -62,7 +62,7 @@ func handle_message(msg: Dictionary, send_fn: Callable) -> void:
 			var handler: Callable = _pending[id]
 			_pending.erase(id)
 			handler.call(result, error)
-	elif has_method:
+	elif msg_has_method:
 		var method := str(msg["method"])
 		var params: Variant = msg.get("params", {})
 		notification_received.emit(method, params)

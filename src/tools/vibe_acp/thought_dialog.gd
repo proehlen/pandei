@@ -3,7 +3,7 @@ extends AcceptDialog
 ## Read-only dialog showing one thought block's full text, opened by clicking the
 ## "thinking"/"thought" link line in the dock transcript.
 ##
-## get_text is re-called on a short timer while the dialog is visible, so a block
+## _get_text is re-called on a short timer while the dialog is visible, so a block
 ## that is still streaming (label "Thinking") live-updates; a finished block
 ## (label "Thought") just shows its final text. The dialog opens scrolled to the
 ## end of the text (and follows the end while streaming if already at the
@@ -43,11 +43,11 @@ func _init() -> void:
 	close_requested.connect(func() -> void: queue_free())
 
 ## label is the block's label ("Thinking" while streaming, "Thought" when done)
-## and drives the window title; get_text returns the block's current full text
+## and drives the window title; text_getter returns the block's current full text
 ## (a Callable so a streaming block keeps updating this dialog).
-func setup_dialog(label: String, get_text: Callable) -> void:
+func setup_dialog(label: String, text_getter: Callable) -> void:
 	title = "Vibe — " + label
-	_get_text = get_text
+	_get_text = text_getter
 	_scroll_to_end = true  # opening the dialog always starts scrolled to the end
 	_refresh()
 

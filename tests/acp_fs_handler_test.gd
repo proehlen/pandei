@@ -16,15 +16,15 @@ func _remove_recursive(path: String) -> void:
 	if d == null:
 		return
 	d.list_dir_begin()
-	var name := d.get_next()
-	while name != "":
-		if name != "." and name != "..":
-			var p := path.path_join(name)
+	var entry := d.get_next()
+	while entry != "":
+		if entry != "." and entry != "..":
+			var p := path.path_join(entry)
 			if d.current_is_dir():
 				_remove_recursive(p)
 			else:
 				DirAccess.remove_absolute(p)
-		name = d.get_next()
+		entry = d.get_next()
 	d.list_dir_end()
 	DirAccess.remove_absolute(path)
 
