@@ -291,3 +291,32 @@ func test_attack_facing_lock_applies_while_idle_and_facing_holds_still_after_rel
 	var before := player.rotation.y
 	player._physics_process(1.0 / 60.0)
 	assert_that(player.rotation.y).is_equal(before) # idle without a lock: facing holds still
+
+
+func test_player_settles_exactly_on_the_facing_target_once_within_one_turn_step() -> void:
+	var player: Player = auto_free(Player.new())
+	player.set_physics_process(false) # tests step _physics_process manually
+	add_child(player)
+	player._attack_facing_yaw = 1.0
+	for i in 60:
+		player._physics_process(1.0 / 60.0)
+	assert_that(player.rotation.y).is_equal(1.0) # snapped exactly onto the lock, not just close
+	assert_that(player.is_turning_to_attack_target()).is_false()
+	Input.action_press("move_right")
+	player.release_attack_facing()
+	for i in 60:
+		player._physics_process(1.0 / 60.0)
+	Input.action_release("move_right")
+	assert_that(absf(player.rotation.y - PI / 2.0) < 0.0001).is_true() # travel facing settles exactly too
+
+
+func test_is_turning_to_attack_target_reflects_whether_the_lock_is_set_and_reached() -> void:
+	var player: Player = auto_free(Player.new())
+	player.set_physics_process(false) # tests step _physics_process manually
+	add_child(player)
+	assert_that(player.is_turning_to_attack_target()).is_false() # no lock
+	player._attack_facing_yaw = PI / 2.0
+	assert_that(player.is_turning_to_attack_target()).is_true() # locked, not yet faced
+	for i in 60:
+		player._physics_process(1.0 / 60.0)
+	assert_that(player.is_turning_to_attack_target()).is_false() # turned to face the click
