@@ -35,6 +35,14 @@ func test_thought_label_animated_cycles_trailing_dots() -> void:
 	assert_that(TranscriptRoles.thought_label_animated(3)).is_equal("Thinking...")
 	assert_that(TranscriptRoles.thought_label_animated(4)).is_equal("Thinking")  # wraps
 
+func test_mode_of_role_groups_items_for_blank_line_separation() -> void:
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_USER)).is_equal("user")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_AGENT)).is_equal("agent")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_THOUGHT)).is_equal("thought")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_TOOL)).is_equal("tool")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_SYS)).is_equal("sys")
+	assert_that(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_ERROR)).is_equal("sys")
+
 func test_locations_of_extracts_tool_call_locations() -> void:
 	assert_that(TranscriptRoles.locations_of({"sessionUpdate": "tool_call"})).is_equal([])
 	var u := {"sessionUpdate": "tool_call", "locations": [{"path": "/home/peter/pandei/src/x.gd", "line": 12}]}

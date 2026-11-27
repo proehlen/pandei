@@ -40,6 +40,21 @@ static func thought_label(streaming: bool) -> String:
 static func thought_label_animated(tick: int) -> String:
 	return THOUGHT_LABEL_STREAMING + ".".repeat(tick % 4)
 
+## Visual "mode" of a transcript item, used for blank-line separation: a whole
+## blank line is inserted when the mode changes, and consecutive items of the same
+## mode (e.g. a run of tool lines, or several "Thought" links) stay grouped.
+static func mode_of_role(role: String) -> String:
+	match role:
+		ROLE_USER:
+			return "user"
+		ROLE_AGENT:
+			return "agent"
+		ROLE_THOUGHT:
+			return "thought"
+		ROLE_TOOL:
+			return "tool"
+	return "sys"
+
 static func prefix_for_role(role: String) -> String:
 	match role:
 		ROLE_USER:

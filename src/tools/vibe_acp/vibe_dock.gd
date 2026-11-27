@@ -81,6 +81,7 @@ var _block_open := false
 var _block_pushes := 0
 var _open_msg_id := ""
 var _open_role := ""
+var _last_mode := ""  # mode of the last transcript item; blank line on change (see _separate_mode)
 
 # Thought blocks: agent_thought_chunk text is buffered per messageId and NEVER
 # appended to the transcript (long reasoning must not push the chat up). While a
@@ -229,10 +230,6 @@ func _build_ui() -> void:
 	_transcript.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # wrap long lines on small screens
 	_transcript.scroll_following = true
 	_transcript.selection_enabled = true
-	# each role line / "Thought" link is one paragraph; give paragraphs a small
-	# visible gap (half a line height) so lines read as separate blocks. In Godot 4
-	# this spacing is a theme constant, not a property.
-	_transcript.add_theme_constant_override("paragraph_separation", int(round(_half_line_height_px())))
 	_transcript.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_transcript.meta_clicked.connect(_on_transcript_meta_clicked)
 	add_child(_transcript)
@@ -273,18 +270,6 @@ func _build_ui() -> void:
 	btns.add_child(_stop_btn)
 
 	_build_status_bar()
-
-## Half a line height of the default theme font, for the transcript's
-## "paragraph_separation" theme constant (RichTextLabel exposes paragraph spacing
-## only as a theme constant in Godot 4). Resolved through the theme (with a
-## font-size fallback) so the gap scales with the editor font size in light and
-## dark themes alike.
-func _half_line_height_px() -> float:
-	var size := get_theme_default_font_size()
-	var font := get_theme_default_font()
-	if font != null:
-		return font.get_height(size) * 0.5
-	return float(size) * 0.5
 
 ## Slim status row beneath the prompt input: git branch dropdown +
 ## connection/session, turn and token-usage labels separated by vertical bars.
@@ -576,6 +561,7 @@ func _on_new_session() -> void:
 	_thought_msg_id = ""
 	_thoughts_by_id.clear()
 	_thought_link.visible = false
+	_last_mode = ""
 	_close_block()
 	_tool_calls_by_id.clear()
 	_busy = false
@@ -883,6 +869,7 @@ func _close_thought_block() -> void:
 ## with bbcode off — same mechanism as the tool-call file links. The transcript is
 ## append-only: this line is never modified afterwards.
 func _append_thought_link_line(mid: String) -> void:
+	_separate_mode(TranscriptRoles.mode_of_role(TranscriptRoles.ROLE_THOUGHT))
 	_transcript.push_meta({"thought_id": mid})
 	_transcript.push_color(COLOR_THOUGHT)
 	_transcript.push_underline()
@@ -1068,8 +1055,19 @@ func _role_color(role: String) -> Color:
 			return COLOR_ERROR
 	return COLOR_SYS
 
+## Insert a whole blank line before an item whose mode differs from the previous
+## item's mode (e.g. You -> Vibe, Vibe -> first tool, anything -> Thought). Items
+## of the same mode — a run of tool lines, several "Thought" links — are NOT
+## separated. Must run after _close_block(), so the previous line is terminated
+## and the extra "\n" becomes an empty paragraph (the blank line).
+func _separate_mode(mode: String) -> void:
+	if _last_mode != "" and mode != _last_mode:
+		_transcript.append_text("\n")
+	_last_mode = mode
+
 func _open_block(role: String, prefix: String) -> void:
 	_close_block()
+	_separate_mode(TranscriptRoles.mode_of_role(role))
 	_transcript.push_color(_role_color(role))
 	_transcript.push_bold()
 	_transcript.append_text(prefix)
