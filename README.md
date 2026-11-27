@@ -7,6 +7,7 @@
 | Keys | Action |
 | --- | --- |
 | `W` `A` `S` `D` (or arrow keys) | Move |
+| Left mouse button | Attack: face the clicked point and swing the sword |
 
 ## Project layout
 

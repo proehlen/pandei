@@ -121,7 +121,25 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	var mouse := event as InputEventMouseButton
 	if mouse != null and mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT:
-		start_swing()
+		if start_swing():
+			aim_holder_at(mouse.position)
+
+
+## Points the holder's facing at the clicked screen position (projected onto
+## the ground plane) so the swing goes toward the click, not the direction of
+## travel. Only called when a swing actually started, so the facing lock is
+## always paired with a swing that will release it.
+func aim_holder_at(screen_pos: Vector2) -> void:
+	if holder == null or not is_instance_valid(holder):
+		return
+	if holder is Player:
+		(holder as Player).face_toward_screen_position(screen_pos)
+
+
+## Releases the holder's attack-facing lock now that the swing is over.
+func release_holder_facing() -> void:
+	if holder != null and is_instance_valid(holder) and holder is Player:
+		(holder as Player).release_attack_facing()
 
 
 ## Advances the swing if one is playing, then keeps the holder's RightHand node in
@@ -134,6 +152,7 @@ func _process_equipped(delta: float) -> void:
 			_swing_time = -1.0
 			if is_instance_valid(_swing_pivot):
 				_swing_pivot.rotation = Vector3.ZERO # swing over: pivot back to rest
+			release_holder_facing() # swing over: facing follows travel again
 		elif is_instance_valid(_swing_pivot):
 			# positive sign: the RightHand sits at -X, so positive rotation.y sweeps it toward +Z (the front)
 			_swing_pivot.rotation.y = swing_angle_at(_swing_time, swing_duration, swing_angle)
@@ -144,14 +163,16 @@ func _process_equipped(delta: float) -> void:
 ## outward from the right hand) and the holder's
 ## SwingPivot sweeps `swing_angle` radians around the holder over
 ## `swing_duration` seconds, carrying the hand at a constant distance from the
-## holder's center. Does nothing unless the sword is equipped.
-func start_swing() -> void:
+## holder's center. Returns true when a swing started; false when the sword is
+## not equipped or the holder has no SwingPivot (no swing, no facing change).
+func start_swing() -> bool:
 	if not equipped or holder == null or not is_instance_valid(holder):
-		return
+		return false
 	_swing_pivot = holder.get_node_or_null("SwingPivot") as Node3D
 	if _swing_pivot == null:
-		return
+		return false
 	_swing_time = 0.0
+	return true
 
 
 ## Keeps the holder's RightHand node in the pose for the current swing state.
