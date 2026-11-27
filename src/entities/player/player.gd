@@ -101,6 +101,16 @@ func release_attack_facing() -> void:
 	_attack_facing_yaw = NAN
 
 
+## True while an attack-facing lock is active and the player has not yet
+## finished turning to face the clicked point. The equipped sword waits for
+## this to clear before swinging, so the swing arc plays out in the final
+## facing direction no matter which side the click is on.
+func is_turning_to_attack_target() -> bool:
+	if is_nan(_attack_facing_yaw):
+		return false
+	return absf(angle_difference(rotation.y, _attack_facing_yaw)) > 0.0001
+
+
 func _physics_process(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var camera_yaw := _camera_yaw()
@@ -112,8 +122,14 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= gravity * delta
 	move_and_slide()
 	var direction := input_to_direction(input, camera_yaw)
+	var facing_target: float = NAN
 	if not is_nan(_attack_facing_yaw):
-		# attack lock: turn toward the clicked point; movement is unaffected
-		rotation.y = lerp_angle(rotation.y, _attack_facing_yaw, clampf(turn_speed * delta, 0.0, 1.0))
+		facing_target = _attack_facing_yaw # attack lock: turn toward the clicked point; movement is unaffected
 	elif not direction.is_zero_approx():
-		rotation.y = lerp_angle(rotation.y, atan2(direction.x, direction.z), clampf(turn_speed * delta, 0.0, 1.0))
+		facing_target = atan2(direction.x, direction.z)
+	if not is_nan(facing_target):
+		var step := turn_speed * delta
+		if absf(angle_difference(rotation.y, facing_target)) <= step:
+			rotation.y = facing_target # within one frame's turn: settle exactly on the target
+		else:
+			rotation.y = lerp_angle(rotation.y, facing_target, clampf(step, 0.0, 1.0))
