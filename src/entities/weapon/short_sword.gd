@@ -237,7 +237,8 @@ func _physics_process(_delta: float) -> void:
 
 ## Nearest living member of the holder groups ("player", "enemy") to the
 ## sword, or null when there is none. When both are in reach, the nearer one
-## picks the sword up.
+## picks the sword up. An enemy that already holds a weapon is skipped: for
+## now it does not pick up a second sword (weapon upgrades are a later feature).
 func find_nearest_holder() -> Node3D:
 	var nearest: Node3D = null
 	var nearest_dist := INF
@@ -245,6 +246,8 @@ func find_nearest_holder() -> Node3D:
 		for member in get_tree().get_nodes_in_group(group):
 			var candidate := member as Node3D
 			if candidate == null or not is_instance_valid(candidate):
+				continue
+			if candidate is Enemy and (candidate as Enemy).has_weapon():
 				continue
 			var dist := global_position.distance_to(candidate.global_position)
 			if dist < nearest_dist:

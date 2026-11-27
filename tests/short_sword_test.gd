@@ -553,7 +553,7 @@ func test_left_click_does_not_swing_an_enemy_held_sword() -> void:
 	assert_that(sword._swing_time < 0.0).is_true() # enemy-held: clicks do not swing it
 
 
-func test_main_scene_places_a_second_sword_closer_to_the_enemy_than_the_first() -> void:
+func test_main_scene_places_a_second_sword_near_but_off_the_enemys_path_to_the_player() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())
 	add_child(main) # triggers _ready on the swords, pinning their hover height
@@ -568,13 +568,101 @@ func test_main_scene_places_a_second_sword_closer_to_the_enemy_than_the_first() 
 	assert_that(sword.is_in_group("weapon")).is_true()
 	assert_that(sword2.is_in_group("weapon")).is_true()
 	var enemy_pos := (enemy as Node3D).global_position
+	var player_pos := (player as Node3D).global_position
 	var dist_first := (sword as Node3D).global_position.distance_to(enemy_pos)
 	var dist_second := (sword2 as Node3D).global_position.distance_to(enemy_pos)
-	assert_that(dist_second < dist_first).is_true() # the second sword sits closer to the enemy
+	assert_that(dist_second < dist_first).is_true() # the second sword is the enemy's closest weapon
 	assert_that(dist_second <= (enemy as Enemy).detection_radius).is_true() # close enough for the enemy to detect it
-	var player_pos := (player as Node3D).global_position
+	assert_that(dist_second > (sword2 as ShortSword).pickup_radius).is_true() # but not grabbed instantly at spawn
+	var to_second := (sword2 as Node3D).global_position - enemy_pos
+	var to_player := player_pos - enemy_pos
+	var cos_angle := to_second.dot(to_player) / (to_second.length() * to_player.length())
+	assert_that(absf(cos_angle) < 0.3).is_true() # off the enemy->player line: at spawn the enemy first moves sideways, visibly
+	assert_that((sword2 as Node3D).global_position.distance_to(player_pos) > (enemy as Enemy).detection_radius).is_true() # arming there does not trigger a player chase at spawn
 	assert_that((sword as Node3D).global_position.distance_to(player_pos) > (sword as ShortSword).pickup_radius).is_true()
 	assert_that((sword2 as Node3D).global_position.distance_to(player_pos) > (sword2 as ShortSword).pickup_radius).is_true() # neither is grabbed at spawn
+
+
+func test_main_scene_enemy_walks_sideways_to_the_second_sword_equips_it_and_leaves_the_first_on_the_map() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main)
+	var enemy: Enemy = main.get_node("Enemy")
+	var player: Player = main.get_node("Player")
+	var sword: ShortSword = main.get_node("ShortSword")
+	var sword2: ShortSword = main.get_node("ShortSword2")
+	var player_pos := player.global_position
+	var min_player_dist := INF
+	var frames := 0
+	while not enemy.has_weapon() and frames < 240: # up to 4 s: enough to cover the ~5 m at up to 6 m/s
+		await get_tree().physics_frame
+		frames += 1
+		min_player_dist = minf(min_player_dist, enemy.global_position.distance_to(player_pos))
+	assert_that(enemy.has_weapon()).is_true() # it reached and equipped the second sword
+	assert_that(sword2.equipped).is_true()
+	assert_that(sword2.get_parent()).is_equal(enemy.get_node("SwingPivot/RightHand")) # in its right hand
+	assert_that(min_player_dist > enemy.detection_radius).is_true() # on the way it never entered the player's detection range
+	assert_that(sword.equipped).is_false() # the first sword stays on the map
+	assert_that(sword.get_parent()).is_equal(main)
+	var pos_after_equip := enemy.global_position
+	for i in 60:
+		await get_tree().physics_frame
+	# armed and with the player out of range: only the ease-out slide remains (v^2 / 2a = 0.6 m at full speed), no continued chase
+	assert_that(enemy.global_position.distance_to(pos_after_equip) < 1.0).is_true()
+	assert_that(Vector3(enemy.velocity.x, 0.0, enemy.velocity.z).length() < 0.001).is_true() # stopped, not chasing
+
+
+func test_armed_enemy_walking_over_a_second_sword_does_not_pick_it_up() -> void:
+	var enemy_packed: PackedScene = load("res://src/entities/enemy/enemy.tscn")
+	var enemy: Enemy = auto_free(enemy_packed.instantiate())
+	enemy.set_physics_process(false) # stationary test double
+	add_child(enemy)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var first_sword: ShortSword = auto_free(packed.instantiate())
+	first_sword.set_process(false)
+	first_sword.set_physics_process(false)
+	add_child(first_sword)
+	first_sword.equip(enemy) # the enemy is already armed
+	assert_that(enemy.has_weapon()).is_true()
+	var second_sword: ShortSword = auto_free(packed.instantiate())
+	second_sword.set_physics_process(false) # tests step _physics_process manually
+	second_sword.set_process(false)
+	add_child(second_sword)
+	second_sword.global_position = Vector3(4, 1.2, 3)
+	enemy.global_position = Vector3(4, 0, 3.5) # walked right over it: ~1.3 m, within the 1.5 m pickup radius
+	assert_that(second_sword.find_nearest_holder()).is_null() # the armed enemy is skipped as a holder
+	second_sword._physics_process(1.0 / 60.0)
+	assert_that(second_sword.equipped).is_false() # the sword stays on the map
+	assert_that(second_sword.get_parent()).is_not_equal(enemy.get_node("SwingPivot/RightHand"))
+
+
+func test_sword_goes_to_the_player_when_the_nearest_holder_is_an_armed_enemy() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	player.set_physics_process(false)
+	add_child(player)
+	var enemy_packed: PackedScene = load("res://src/entities/enemy/enemy.tscn")
+	var enemy: Enemy = auto_free(enemy_packed.instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var first_sword: ShortSword = auto_free(packed.instantiate())
+	first_sword.set_process(false)
+	first_sword.set_physics_process(false)
+	add_child(first_sword)
+	first_sword.equip(enemy) # armed enemy
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_physics_process(false) # tests step _physics_process manually
+	sword.set_process(false)
+	add_child(sword)
+	sword.global_position = Vector3(0, 1.2, 0)
+	enemy.global_position = Vector3.ZERO # 1.2 m from the sword: nearest, but armed and skipped
+	player.global_position = Vector3(0.5, 0, 0) # 1.3 m: within pickup radius
+	assert_that(sword.find_nearest_holder()).is_equal(player)
+	sword._physics_process(1.0 / 60.0)
+	assert_that(sword.equipped).is_true()
+	assert_that(sword.holder).is_equal(player) # the player gets it, not the armed enemy
 
 
 func test_player_can_evade_while_swinging_at_a_clicked_point_behind_it() -> void:
