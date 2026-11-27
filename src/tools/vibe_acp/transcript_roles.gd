@@ -10,8 +10,8 @@ const ROLE_THOUGHT := "thought"
 const ROLE_TOOL := "tool"
 const ROLE_ERROR := "error"
 
-const THOUGHT_LABEL_STREAMING := "thinking"
-const THOUGHT_LABEL_DONE := "thought"
+const THOUGHT_LABEL_STREAMING := "Thinking"
+const THOUGHT_LABEL_DONE := "Thought"
 
 static func role_for_update(update: Dictionary) -> String:
 	match str(update.get("sessionUpdate", "")):
@@ -30,13 +30,13 @@ static func locations_of(update: Dictionary) -> Array:
 	var l: Variant = update.get("locations", [])
 	return l if l is Array else []
 
-## Transcript label of a thought block: "thinking" while it streams, "thought"
-## once it finished (same wording as the vibe CLI). Thought text is not rendered
-## inline — the label is a link that opens the full text in a dialog.
+## Label of a thought block: "Thinking" while it streams, "Thought" once it
+## finished (same wording as the vibe CLI, capitalized). Thought text is not
+## rendered inline — the label is a link that opens the full text in a dialog.
 static func thought_label(streaming: bool) -> String:
 	return THOUGHT_LABEL_STREAMING if streaming else THOUGHT_LABEL_DONE
 
-## Streaming label with animated trailing dots: "thinking", "thinking.", …
+## Streaming label with animated trailing dots: "Thinking", "Thinking.", …
 static func thought_label_animated(tick: int) -> String:
 	return THOUGHT_LABEL_STREAMING + ".".repeat(tick % 4)
 

@@ -25,15 +25,15 @@ func test_prefixes_are_distinct_per_role() -> void:
 	assert_that(TranscriptRoles.prefix_for_role(TranscriptRoles.ROLE_AGENT)).is_equal("Vibe: ")
 
 func test_thought_label_is_thinking_while_streaming_and_thought_when_done() -> void:
-	assert_that(TranscriptRoles.thought_label(true)).is_equal("thinking")
-	assert_that(TranscriptRoles.thought_label(false)).is_equal("thought")
+	assert_that(TranscriptRoles.thought_label(true)).is_equal("Thinking")
+	assert_that(TranscriptRoles.thought_label(false)).is_equal("Thought")
 
 func test_thought_label_animated_cycles_trailing_dots() -> void:
-	assert_that(TranscriptRoles.thought_label_animated(0)).is_equal("thinking")
-	assert_that(TranscriptRoles.thought_label_animated(1)).is_equal("thinking.")
-	assert_that(TranscriptRoles.thought_label_animated(2)).is_equal("thinking..")
-	assert_that(TranscriptRoles.thought_label_animated(3)).is_equal("thinking...")
-	assert_that(TranscriptRoles.thought_label_animated(4)).is_equal("thinking")  # wraps
+	assert_that(TranscriptRoles.thought_label_animated(0)).is_equal("Thinking")
+	assert_that(TranscriptRoles.thought_label_animated(1)).is_equal("Thinking.")
+	assert_that(TranscriptRoles.thought_label_animated(2)).is_equal("Thinking..")
+	assert_that(TranscriptRoles.thought_label_animated(3)).is_equal("Thinking...")
+	assert_that(TranscriptRoles.thought_label_animated(4)).is_equal("Thinking")  # wraps
 
 func test_locations_of_extracts_tool_call_locations() -> void:
 	assert_that(TranscriptRoles.locations_of({"sessionUpdate": "tool_call"})).is_equal([])

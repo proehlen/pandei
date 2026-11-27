@@ -69,13 +69,19 @@ browser auth.
 - **Transcript** — roles are visually distinct: `You:` (blue), `Vibe:`,
   `tool:` (yellow), `[sys]`/`[err]`. Tool lines with
   file locations render clickable `res://path:line` links that open the file in
-  the editor. Long lines wrap. **Thoughts are not inline**: each thought block
-  adds one clickable gray `thinking` link (with animated dots while it streams)
-  that is renamed to `thought` when the block finishes — clicking it opens a
-  dialog with the full thinking text (live-updating while still streaming), so
-  long reasoning never pushes the rest of the chat up.
-- **Thought dialog** — click a `thinking`/`thought` link in the transcript to
-  read the whole thought block in a read-only, selectable dialog.
+  the editor. Long lines wrap. **Thoughts are not inline**: thought text is
+  buffered, never appended to the chat (so long reasoning never pushes the rest
+  of the conversation up). While the agent thinks, a clickable gray `Thinking`
+  link (animated dots) sits at the bottom of the chat area; when the block
+  finishes it becomes a static `Thought` link line in the transcript. The
+  transcript is strictly append-only. Clicking either link opens the thought
+  dialog. (Note: `session/load` in current vibe-acp replays the full history as
+  `session/update`s, so a resumed session's past turns — including their
+  `Thought` links — are rendered too.)
+- **Thought dialog** — click `Thinking`/`Thought` to read the whole thought block
+  in a read-only, selectable dialog that opens scrolled to the end (and follows
+  the end while the block still streams, if you're already at the bottom). While
+  streaming, the dialog live-updates as more thinking arrives.
 - **Input** — long prompts wrap inside the multi-line box. Ctrl/Cmd+Enter
   sends. The **Send** button is enabled exactly
   when Ctrl+Enter would work (both use the same `_can_send()` check: connected,
