@@ -24,6 +24,45 @@ var target: Node3D = null
 var start_position: Vector3
 
 
+## True when the enemy's RightHand holds an equipped weapon (a ShortSword
+## picked up from the "weapon" group).
+func has_weapon() -> bool:
+	var hand := get_node_or_null("SwingPivot/RightHand")
+	if hand == null:
+		return false
+	for child in hand.get_children():
+		if child is ShortSword and (child as ShortSword).equipped:
+			return true
+	return false
+
+
+## Nearest unequipped weapon (ShortSword in the "weapon" group) within
+## detection_radius of the enemy, or null when none is detected.
+func find_weapon_target() -> Node3D:
+	var nearest: Node3D = null
+	var nearest_dist := INF
+	for member in get_tree().get_nodes_in_group("weapon"):
+		var sword := member as ShortSword
+		if sword == null or not is_instance_valid(sword) or sword.equipped:
+			continue
+		var dist := global_position.distance_to(sword.global_position)
+		if dist <= detection_radius and dist < nearest_dist:
+			nearest_dist = dist
+			nearest = sword
+	return nearest
+
+
+## The node the enemy currently wants to move toward: when it carries no
+## weapon and detects one, the nearest detected weapon (the player is
+## ignored); otherwise the player target.
+func current_chase_target() -> Node3D:
+	if not has_weapon():
+		var weapon := find_weapon_target()
+		if weapon != null:
+			return weapon
+	return target
+
+
 ## True when `to` lies within `radius` meters of `from`. Pure function so it stays unit-testable.
 static func is_within_detection(from: Vector3, to: Vector3, radius: float) -> bool:
 	return from.distance_to(to) <= radius
@@ -63,17 +102,18 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 
-## Horizontal velocity toward the target while it is within detection_radius
-## of the enemy and within give_up_radius of the enemy's starting position,
-## else zero.
+## Horizontal velocity toward the current chase target while it is within
+## detection_radius of the enemy and within give_up_radius of the enemy's
+## starting position, else zero.
 func compute_chase_velocity() -> Vector3:
-	if target == null or not is_instance_valid(target):
+	var chase_target := current_chase_target()
+	if chase_target == null or not is_instance_valid(chase_target):
 		return Vector3.ZERO
-	if not is_within_detection(global_position, target.global_position, detection_radius):
+	if not is_within_detection(global_position, chase_target.global_position, detection_radius):
 		return Vector3.ZERO
-	if not is_within_detection(start_position, target.global_position, give_up_radius):
+	if not is_within_detection(start_position, chase_target.global_position, give_up_radius):
 		return Vector3.ZERO
-	return chase_velocity(global_position, target.global_position, move_speed)
+	return chase_velocity(global_position, chase_target.global_position, move_speed)
 
 
 ## Finds the player via the "player" group when no target is assigned yet.

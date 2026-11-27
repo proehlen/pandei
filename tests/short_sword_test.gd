@@ -466,6 +466,117 @@ func test_swing_arc_in_world_space_is_the_full_arc_whether_the_click_is_behind_l
 		assert_that(is_nan(player._attack_facing_yaw)).is_true() # lock released at swing end
 
 
+func test_short_sword_scene_root_is_in_the_weapon_group_so_enemies_can_detect_it() -> void:
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	assert_that(sword.is_in_group("weapon")).is_true()
+
+
+func test_enemy_walking_over_sword_picks_it_up_and_equips_it_in_its_right_hand() -> void:
+	var enemy_packed: PackedScene = load("res://src/entities/enemy/enemy.tscn")
+	var enemy: Enemy = auto_free(enemy_packed.instantiate())
+	enemy.set_physics_process(false) # stationary test double
+	add_child(enemy) # the scene root is in the "enemy" group
+	assert_that(enemy.is_in_group("enemy")).is_true()
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_physics_process(false) # tests step _physics_process manually
+	sword.set_process(false)
+	add_child(sword)
+	sword.global_position = Vector3(5, 1.2, 4)
+	enemy.global_position = Vector3(20, 0, 15) # far away: no pickup
+	sword._physics_process(1.0 / 60.0)
+	assert_that(sword.equipped).is_false()
+	assert_that(sword.get_parent()).is_not_equal(enemy.get_node("SwingPivot/RightHand"))
+	enemy.global_position = Vector3(5, 0, 4.5) # walked over the sword: 1.3 m away, within the 1.5 m radius
+	sword._physics_process(1.0 / 60.0)
+	var hand := enemy.get_node("SwingPivot/RightHand") as Node3D
+	assert_that(sword.equipped).is_true()
+	assert_that(sword.holder).is_equal(enemy)
+	assert_that(sword.get_parent()).is_equal(hand) # attached to the enemy's hand, like the player's
+	assert_that(sword.transform.is_equal_approx(Transform3D.IDENTITY)).is_true() # hilt sits exactly at the hand
+	assert_that(hand.basis.is_equal_approx(ShortSword.equipped_basis(sword.equipped_lean))).is_true() # grip pose carried by the hand
+
+
+func test_nearest_holder_picks_up_the_sword_when_player_and_enemy_are_both_near() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	player.set_physics_process(false)
+	add_child(player)
+	var enemy_packed: PackedScene = load("res://src/entities/enemy/enemy.tscn")
+	var enemy: Enemy = auto_free(enemy_packed.instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_physics_process(false) # tests step _physics_process manually
+	sword.set_process(false)
+	add_child(sword)
+	sword.global_position = Vector3(0, 1.2, 0)
+	player.global_position = Vector3(0.5, 0, 0) # 1.3 m from the sword: within pickup radius
+	enemy.global_position = Vector3.ZERO # 1.2 m: nearer than the player
+	assert_that(sword.find_nearest_holder()).is_equal(enemy)
+	sword._physics_process(1.0 / 60.0)
+	assert_that(sword.equipped).is_true()
+	assert_that(sword.holder).is_equal(enemy) # the nearer enemy wins
+	# and the other way around: with the player nearer, the player picks it up
+	var sword2: ShortSword = auto_free(packed.instantiate())
+	sword2.set_physics_process(false)
+	sword2.set_process(false)
+	add_child(sword2)
+	sword2.global_position = Vector3(10, 1.2, 0)
+	player.global_position = Vector3(10, 0, 0) # 1.2 m from sword2
+	enemy.global_position = Vector3(10.5, 0, 0) # 1.3 m from sword2
+	assert_that(sword2.find_nearest_holder()).is_equal(player)
+	sword2._physics_process(1.0 / 60.0)
+	assert_that(sword2.equipped).is_true()
+	assert_that(sword2.holder).is_equal(player)
+
+
+func test_left_click_does_not_swing_an_enemy_held_sword() -> void:
+	var enemy_packed: PackedScene = load("res://src/entities/enemy/enemy.tscn")
+	var enemy: Enemy = auto_free(enemy_packed.instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(enemy)
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = Vector2(100, 100)
+	sword._unhandled_input(click)
+	assert_that(sword._swing_time < 0.0).is_true() # enemy-held: clicks do not swing it
+
+
+func test_main_scene_places_a_second_sword_closer_to_the_enemy_than_the_first() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main) # triggers _ready on the swords, pinning their hover height
+	var player: Node = main.get_node_or_null("Player")
+	var enemy: Node = main.get_node_or_null("Enemy")
+	var sword: Node = main.get_node_or_null("ShortSword")
+	var sword2: Node = main.get_node_or_null("ShortSword2")
+	assert_that(player).is_not_null()
+	assert_that(enemy).is_not_null()
+	assert_that(sword).is_not_null()
+	assert_that(sword2).is_not_null()
+	assert_that(sword.is_in_group("weapon")).is_true()
+	assert_that(sword2.is_in_group("weapon")).is_true()
+	var enemy_pos := (enemy as Node3D).global_position
+	var dist_first := (sword as Node3D).global_position.distance_to(enemy_pos)
+	var dist_second := (sword2 as Node3D).global_position.distance_to(enemy_pos)
+	assert_that(dist_second < dist_first).is_true() # the second sword sits closer to the enemy
+	assert_that(dist_second <= (enemy as Enemy).detection_radius).is_true() # close enough for the enemy to detect it
+	var player_pos := (player as Node3D).global_position
+	assert_that((sword as Node3D).global_position.distance_to(player_pos) > (sword as ShortSword).pickup_radius).is_true()
+	assert_that((sword2 as Node3D).global_position.distance_to(player_pos) > (sword2 as ShortSword).pickup_radius).is_true() # neither is grabbed at spawn
+
+
 func test_player_can_evade_while_swinging_at_a_clicked_point_behind_it() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())

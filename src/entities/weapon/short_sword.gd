@@ -26,13 +26,16 @@ extends Node3D
 ## Duration of one swing in seconds — another 1.2x faster than the previous 0.35 / 1.2 s.
 @export var swing_duration: float = 0.35 / 1.2 / 1.2
 
+## Groups whose members can pick up the sword: the player and enemies.
+const HOLDER_GROUPS: Array[StringName] = [&"player", &"enemy"]
+
 ## Elapsed time since the sword started bobbing.
 var _bob_time: float = 0.0
 ## Elapsed time since the sword started spinning.
 var _spin_time: float = 0.0
 ## True once the sword has been picked up and equipped.
 var equipped: bool = false
-## The node holding the sword. Acquired from the "player" group when unset.
+## The node holding the sword. Acquired from the holder groups when unset.
 var holder: Node3D = null
 ## Child node carrying the sword's own orientation (loot pose only; the grip
 ## pose is carried by the holder's RightHand node when equipped); null when the
@@ -122,6 +125,8 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not (holder is Player):
+		return # only the player's sword swings on click; an enemy-held sword is AI-driven
 	var mouse := event as InputEventMouseButton
 	if mouse != null and mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT:
 		start_swing_at(mouse.position)
@@ -225,15 +230,27 @@ func _update_hand_pose(swinging: bool) -> void:
 func _physics_process(_delta: float) -> void:
 	if equipped:
 		return
-	acquire_holder()
-	if holder != null and is_instance_valid(holder) and is_within_pickup(global_position, holder.global_position, pickup_radius):
-		equip(holder)
+	var nearest := find_nearest_holder()
+	if nearest != null and is_within_pickup(global_position, nearest.global_position, pickup_radius):
+		equip(nearest)
 
 
-## Finds the player via the "player" group when no holder is assigned yet.
-func acquire_holder() -> void:
-	if holder == null:
-		holder = get_tree().get_first_node_in_group("player") as Node3D
+## Nearest living member of the holder groups ("player", "enemy") to the
+## sword, or null when there is none. When both are in reach, the nearer one
+## picks the sword up.
+func find_nearest_holder() -> Node3D:
+	var nearest: Node3D = null
+	var nearest_dist := INF
+	for group in HOLDER_GROUPS:
+		for member in get_tree().get_nodes_in_group(group):
+			var candidate := member as Node3D
+			if candidate == null or not is_instance_valid(candidate):
+				continue
+			var dist := global_position.distance_to(candidate.global_position)
+			if dist < nearest_dist:
+				nearest_dist = dist
+				nearest = candidate
+	return nearest
 
 
 ## Attaches the sword to the holder's RightHand node: the right hand (positioned

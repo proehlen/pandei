@@ -22,7 +22,7 @@ height = 0.24
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_handle"]
 albedo_color = Color(0.35, 0.22, 0.12, 1)
 
-[node name="ShortSword" type="Node3D" unique_id=294472945]
+[node name="ShortSword" type="Node3D" unique_id=294472945 groups=["weapon"]]
 script = ExtResource("1_sword")
 
 [node name="Placeholder_SwordPivot" type="Node3D" parent="." groups=["ai_placeholder"]]
