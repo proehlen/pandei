@@ -117,6 +117,31 @@ func _ready() -> void:
 	_update_health_bar()
 
 
+func _process(_delta: float) -> void:
+	_face_health_bar_to_camera()
+
+
+## Rotates the health bar so its local +Z (the quads' normal) points at the
+## active camera. The fill quad sits at +Z of the background quad, so this
+## keeps the fill in front along the view direction from any camera side,
+## instead of z-fighting with the background as the camera moves around.
+func _face_health_bar_to_camera() -> void:
+	var bar := get_node_or_null("Placeholder_HealthBar") as Node3D
+	if bar == null or not bar.visible:
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var to_camera := camera.global_position - bar.global_position
+	if to_camera.is_zero_approx():
+		return
+	var dir := -to_camera.normalized() # Basis.looking_at points -Z along dir: this puts +Z toward the camera
+	var up := Vector3.UP
+	if absf(dir.y) > 0.999: # camera almost straight above/below: pick a non-parallel up
+		up = Vector3.FORWARD
+	bar.global_basis = Basis.looking_at(dir, up)
+
+
 func _physics_process(delta: float) -> void:
 	acquire_target()
 	var chase := compute_chase_velocity()

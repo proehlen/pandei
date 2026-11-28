@@ -392,3 +392,21 @@ func test_dead_enemy_falls_onto_its_side_away_from_the_strike_and_stays_down() -
 	for i in 10:
 		enemy._physics_process(1.0 / 60.0)
 	assert_that(enemy.basis.is_equal_approx(fallen)).is_true() # stays down
+
+
+func test_health_bar_faces_the_camera_and_the_fill_stays_in_front_of_the_background_from_either_side() -> void:
+	var packed: PackedScene = load("res://src/core/main.tscn")
+	var main: Node = auto_free(packed.instantiate())
+	add_child(main) # brings the active Camera3D
+	var enemy: Enemy = main.get_node("Enemy")
+	enemy.set_physics_process(false) # hold the enemy still so nothing rotates between the facing and the assertions
+	var bar := enemy.get_node("Placeholder_HealthBar") as Node3D
+	var background := bar.get_node("Placeholder_HealthBarBackground") as Node3D
+	var fill := bar.get_node("Placeholder_HealthBarFill") as Node3D
+	var camera := main.get_node("Camera3D") as Camera3D
+	for cam_z in [-6.0, 18.0]: # camera on the -Z side of the enemy (z=6), then on the +Z side
+		camera.global_position = Vector3(0, 10.5, cam_z)
+		enemy._process(0.0) # face the bar at the camera, synchronously (no frames run during this test)
+		var to_camera := (camera.global_position - bar.global_position).normalized()
+		assert_that((bar.global_basis * Vector3(0, 0, 1)).dot(to_camera) > 0.999).is_true() # the quads' +Z normal faces the camera
+		assert_that(camera.global_position.distance_to(fill.global_position) < camera.global_position.distance_to(background.global_position)).is_true() # fill strictly in front: no z-fighting from this side
