@@ -25,6 +25,11 @@ extends Node3D
 @export var swing_angle: float = deg_to_rad(160.0)
 ## Duration of one swing in seconds — another 1.2x faster than the previous 0.35 / 1.2 s.
 @export var swing_duration: float = 0.35 / 1.2 / 1.2
+## Damage dealt to each enemy struck by one swing.
+@export var damage: float = 25.0
+## Distance in meters from the sword's hilt to an enemy's body center at which
+## a swing connects.
+@export var hit_radius: float = 1.5
 
 ## Groups whose members can pick up the sword: the player and enemies.
 const HOLDER_GROUPS: Array[StringName] = [&"player", &"enemy"]
@@ -50,6 +55,9 @@ var _swing_pending: bool = false
 ## rotates this node, not the RightHand, so the hand orbits the holder at a
 ## constant distance while its grip pose stays independent of the swing.
 var _swing_pivot: Node3D = null
+## Enemies already damaged by the current swing, so one swing hits each enemy
+## at most once. Cleared whenever a new swing starts.
+var _hit_enemies: Array[Enemy] = []
 
 
 ## Vertical bob offset for a given time: a sine wave of the given amplitude
@@ -104,6 +112,12 @@ static func swing_angle_at(time: float, duration: float, total_angle: float) -> 
 ## True when `to` lies within `radius` meters of `from`. Pure function so it stays unit-testable.
 static func is_within_pickup(from: Vector3, to: Vector3, radius: float) -> bool:
 	return from.distance_to(to) <= radius
+
+
+## True when a swing at `weapon_pos` reaches `target_pos` within `radius`
+## meters. Pure function so it stays unit-testable.
+static func is_hit(weapon_pos: Vector3, target_pos: Vector3, radius: float) -> bool:
+	return weapon_pos.distance_to(target_pos) <= radius
 
 
 func _ready() -> void:
@@ -180,6 +194,7 @@ func _process_equipped(delta: float) -> void:
 	if _swing_pending and not _holder_is_turning_to_attack_target():
 		_swing_pending = false
 		_swing_time = 0.0 # the holder now faces the clicked point: start the swing
+		_hit_enemies.clear()
 	if _swing_time >= 0.0:
 		_swing_time += delta
 		if _swing_time >= swing_duration:
@@ -190,6 +205,8 @@ func _process_equipped(delta: float) -> void:
 		elif is_instance_valid(_swing_pivot):
 			# positive sign: the RightHand sits at -X, so positive rotation.y sweeps it toward +Z (the front)
 			_swing_pivot.rotation.y = swing_angle_at(_swing_time, swing_duration, swing_angle)
+		if _swing_time >= 0.0:
+			_apply_swing_hits() # the blade is moving: check for enemies in its path
 	_update_hand_pose(_swing_time >= 0.0)
 
 
@@ -214,7 +231,25 @@ func start_swing() -> bool:
 	else:
 		_swing_pending = false
 		_swing_time = 0.0
+		_hit_enemies.clear() # a new swing may hit each enemy again
 	return true
+
+
+## Damages every living enemy (other than the holder) whose body center is
+## within hit_radius of the sword while a swing is playing. Each enemy is hit
+## at most once per swing; the strike pushes it away from the holder.
+func _apply_swing_hits() -> void:
+	if holder == null or not is_instance_valid(holder):
+		return
+	for member in get_tree().get_nodes_in_group("enemy"):
+		var enemy := member as Enemy
+		if enemy == null or not is_instance_valid(enemy) or not enemy.alive:
+			continue
+		if enemy == holder or _hit_enemies.has(enemy):
+			continue
+		if is_hit(global_position, enemy.hit_center(), hit_radius):
+			_hit_enemies.append(enemy)
+			enemy.take_damage(damage, holder.global_position)
 
 
 ## Keeps the holder's RightHand node in the pose for the current swing state.

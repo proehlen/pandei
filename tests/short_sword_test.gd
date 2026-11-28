@@ -691,3 +691,114 @@ func test_player_can_evade_while_swinging_at_a_clicked_point_behind_it() -> void
 	assert_that(sword._swing_time >= 0.0).is_true() # the swing started once the click was faced
 	assert_that(player.velocity.x < -5.0).is_true() # still evading at full speed, unaffected by the turn
 	assert_that(absf(angle_difference(player.rotation.y, PI)) < 0.05).is_true() # turned 180 degrees to face the click
+
+
+func test_is_hit_checks_distance_within_radius() -> void:
+	assert_that(ShortSword.is_hit(Vector3.ZERO, Vector3(1.5, 0, 0), 1.5)).is_true()
+	assert_that(ShortSword.is_hit(Vector3.ZERO, Vector3(1.51, 0, 0), 1.5)).is_false()
+	assert_that(ShortSword.is_hit(Vector3(0, 0.8, 0), Vector3(0, 0.8, 0), 0.0)).is_true()
+
+
+func test_swinging_sword_damages_a_nearby_enemy_exactly_once_per_swing_and_pushes_it_away() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.add_to_group("player")
+	player.set_physics_process(false)
+	add_child(player)
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false) # stationary: the knockback velocity is inspected, not integrated
+	add_child(enemy)
+	enemy.global_position = Vector3(1.2, 0, 0) # adjacent: the swing arc sweeps past it
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false) # tests step _process manually
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(player)
+	assert_that(sword.start_swing()).is_true()
+	var dt := 1.0 / 60.0
+	for i in 30: # longer than swing_duration: the whole arc plays out
+		sword._process(dt)
+	assert_that(enemy.health).is_equal(enemy.max_health - sword.damage) # one hit per swing, not per frame
+	assert_that(enemy.alive).is_true()
+	assert_that(enemy.velocity.x > 0.0).is_true() # pushed away from the player at the origin
+	assert_that(sword.start_swing()).is_true() # a second swing hits again
+	for i in 30:
+		sword._process(dt)
+	assert_that(enemy.health).is_equal(enemy.max_health - 2.0 * sword.damage)
+
+
+func test_swinging_sword_does_not_hit_an_enemy_out_of_range() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.set_physics_process(false)
+	add_child(player)
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	enemy.global_position = Vector3(5, 0, 0) # well beyond the swing reach
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(player)
+	assert_that(sword.start_swing()).is_true()
+	for i in 30:
+		sword._process(1.0 / 60.0)
+	assert_that(enemy.health).is_equal(enemy.max_health)
+	assert_that(sword._hit_enemies.is_empty()).is_true()
+
+
+func test_swinging_sword_ignores_a_dead_enemy() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate())
+	player.set_physics_process(false)
+	add_child(player)
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	enemy.global_position = Vector3(1.2, 0, 0)
+	enemy.take_damage(1000.0, Vector3.ZERO) # already dead
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(player)
+	assert_that(sword.start_swing()).is_true()
+	for i in 30:
+		sword._process(1.0 / 60.0)
+	assert_that(enemy.health).is_equal(0.0)
+	assert_that(sword._hit_enemies.is_empty()).is_true()
+
+
+func test_repeated_player_swings_kill_the_enemy_and_it_falls_onto_its_side() -> void:
+	var player_packed: PackedScene = load("res://src/entities/player/player.tscn")
+	var player: Player = auto_free(player_packed.instantiate()) # not in the "player" group: the enemy holds still
+	player.set_physics_process(false)
+	add_child(player)
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false) # tests step _physics_process manually
+	enemy.gravity = 0.0 # no floor in the test scene: the fall pose is checked without settling
+	add_child(enemy)
+	var packed: PackedScene = load("res://src/entities/weapon/short_sword.tscn")
+	var sword: ShortSword = auto_free(packed.instantiate())
+	sword.set_process(false)
+	sword.set_physics_process(false)
+	add_child(sword)
+	sword.equip(player)
+	var swings := int(ceil(enemy.max_health / sword.damage))
+	for s in swings:
+		enemy.global_position = Vector3(1.2, 0, 0) # back in the swing arc for each hit
+		enemy.velocity = Vector3.ZERO
+		assert_that(sword.start_swing()).is_true()
+		for i in 30:
+			sword._process(1.0 / 60.0)
+	assert_that(enemy.alive).is_false()
+	assert_that(enemy.health).is_equal(0.0)
+	for i in 60: # let the death fall play out (twice death_fall_duration)
+		enemy._physics_process(1.0 / 60.0)
+	var up := enemy.basis * Vector3.UP
+	assert_that(absf(up.y) < 0.01).is_true() # lying on its side
+	assert_that(up.x > 0.9).is_true() # fallen away from the player at the origin

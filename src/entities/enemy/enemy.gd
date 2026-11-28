@@ -16,12 +16,30 @@ extends CharacterBody3D
 ## Horizontal acceleration in m/s^2 used to ease in/out of movement. At the
 ## defaults this reaches move_speed in ~0.2 s, keeping the ramp subtle.
 @export var acceleration: float = 30.0
+## Hitpoints the enemy starts with. Reaching zero kills it.
+@export var max_health: float = 100.0
+## Horizontal push speed in m/s applied away from the strike when the enemy
+## is hit. The chase easing decays it over ~knockback_speed/acceleration seconds.
+@export var knockback_speed: float = 8.0
+## Seconds the death fall (tipping the model onto its side) takes.
+@export var death_fall_duration: float = 0.5
 
 ## The node the enemy chases. Acquired from the "player" group when unset.
 var target: Node3D = null
 ## World position where the enemy entered the scene. The give-up leash is
 ## anchored here so the enemy cannot be kited arbitrarily far from its post.
 var start_position: Vector3
+## Current hitpoints. Set to max_health in _ready; clamped at zero on death.
+var health: float = 0.0
+## False once health reached zero: a dead enemy stops chasing and falls over.
+var alive: bool = true
+## Elapsed seconds since death; negative while alive.
+var _death_time: float = -1.0
+## Body basis captured when death started and the lying-down pose it eases toward.
+var _death_start_basis := Basis.IDENTITY
+var _death_target_basis := Basis.IDENTITY
+## World-space horizontal direction of the last hit, used to pick the fall direction.
+var _last_hit_direction := Vector3.ZERO
 
 
 ## True when the enemy's RightHand holds an equipped weapon (a ShortSword
@@ -84,9 +102,19 @@ static func ease_velocity(current: Vector3, target_velocity: Vector3, accel: flo
 	return current.move_toward(target_velocity, accel * delta)
 
 
+## Health as a fraction in [0, 1] for the given max. Pure function so it stays
+## unit-testable; a non-positive max yields 0 instead of dividing by zero.
+static func health_fraction(current: float, maximum: float) -> float:
+	if maximum <= 0.0:
+		return 0.0
+	return clampf(current / maximum, 0.0, 1.0)
+
+
 func _ready() -> void:
 	start_position = global_position
 	acquire_target()
+	health = max_health
+	_update_health_bar()
 
 
 func _physics_process(delta: float) -> void:
@@ -97,6 +125,8 @@ func _physics_process(delta: float) -> void:
 	velocity.z = horizontal.z
 	if not chase.is_zero_approx():
 		rotation.y = lerp_angle(rotation.y, atan2(chase.x, chase.z), clampf(turn_speed * delta, 0.0, 1.0))
+	elif not alive:
+		_advance_death_fall(delta)
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 	move_and_slide()
@@ -106,6 +136,8 @@ func _physics_process(delta: float) -> void:
 ## detection_radius of the enemy and within give_up_radius of the enemy's
 ## starting position, else zero.
 func compute_chase_velocity() -> Vector3:
+	if not alive:
+		return Vector3.ZERO # a dead enemy stands down
 	var chase_target := current_chase_target()
 	if chase_target == null or not is_instance_valid(chase_target):
 		return Vector3.ZERO
@@ -120,3 +152,78 @@ func compute_chase_velocity() -> Vector3:
 func acquire_target() -> void:
 	if target == null:
 		target = get_tree().get_first_node_in_group("player") as Node3D
+
+
+## World-space center of the enemy's body capsule (the point a weapon strikes).
+func hit_center() -> Vector3:
+	var shape_node := get_node_or_null("CollisionShape3D") as CollisionShape3D
+	var local := shape_node.position if shape_node != null else Vector3(0.0, 0.8, 0.0)
+	return global_transform * local
+
+
+## Applies `amount` damage from a strike originating at `source_position`:
+## health is reduced (clamped at zero), the enemy is pushed away from the
+## source at knockback_speed, and at zero health it dies. No-op when dead or
+## when the amount is not positive.
+func take_damage(amount: float, source_position: Vector3) -> void:
+	if not alive or amount <= 0.0:
+		return
+	health = maxf(0.0, health - amount)
+	var push := Vector3(global_position.x - source_position.x, 0.0, global_position.z - source_position.z)
+	if not push.is_zero_approx():
+		var direction := push.normalized()
+		_last_hit_direction = direction
+		velocity.x = direction.x * knockback_speed
+		velocity.z = direction.z * knockback_speed
+	_update_health_bar()
+	if health <= 0.0:
+		die()
+
+
+## Kills the enemy: it stops chasing and tips over onto its side, away from
+## the last strike, easing to the lying pose over death_fall_duration seconds.
+func die() -> void:
+	if not alive:
+		return
+	alive = false
+	_death_time = 0.0
+	_death_start_basis = basis
+	var push := _last_hit_direction
+	if push.is_zero_approx():
+		push = Vector3.RIGHT
+	var local_push := basis.inverse() * push
+	if local_push.is_zero_approx():
+		local_push = Vector3.RIGHT
+	# rotate about the horizontal axis perpendicular to the hit so the top of
+	# the model tips toward the push direction and it lands on its side
+	var axis := Vector3.UP.cross(local_push.normalized())
+	_death_target_basis = basis * Basis(axis, PI / 2.0)
+	_update_health_bar() # hides the bar
+
+
+## Eases the body from the pose at death toward the lying-down pose.
+func _advance_death_fall(delta: float) -> void:
+	_death_time += delta
+	var t := 1.0
+	if death_fall_duration > 0.0:
+		t = clampf(_death_time / death_fall_duration, 0.0, 1.0)
+	var eased := t * t * (3.0 - 2.0 * t) # smoothstep
+	basis = _death_start_basis.slerp(_death_target_basis, eased)
+
+
+## Shows the health bar over the enemy's head while it is alive and scales the
+## fill quad to the current health fraction, anchored at the bar's left edge.
+func _update_health_bar() -> void:
+	var bar := get_node_or_null("Placeholder_HealthBar") as Node3D
+	if bar == null:
+		return
+	bar.visible = alive
+	var fill := bar.get_node_or_null("Placeholder_HealthBarFill") as MeshInstance3D
+	if fill == null:
+		return
+	var width := 1.0
+	if fill.mesh is QuadMesh:
+		width = (fill.mesh as QuadMesh).size.x
+	var fraction := health_fraction(health, max_health)
+	fill.scale.x = fraction
+	fill.position.x = -width * 0.5 * (1.0 - fraction)

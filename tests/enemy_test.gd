@@ -295,3 +295,100 @@ func test_chasing_enemy_stops_at_capsule_contact_instead_of_reaching_the_player(
 	var gap := player.global_position.distance_to(enemy.global_position)
 	assert_that(gap < 5.0).is_true() # the enemy actually closed in on the player
 	assert_that(gap >= contact - 0.05).is_true() # ...but stops at contact instead of overlapping
+
+
+func test_enemy_starts_alive_at_full_health_with_a_billboard_bar_over_its_head() -> void:
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	add_child(enemy) # _ready fills health and refreshes the bar
+	assert_that(enemy.alive).is_true()
+	assert_that(enemy.health).is_equal(enemy.max_health)
+	var bar: Node = enemy.get_node_or_null("Placeholder_HealthBar")
+	assert_that(bar).is_not_null()
+	assert_that(bar.is_in_group("ai_placeholder")).is_true()
+	assert_that((bar as Node3D).position.y > 1.6).is_true() # above the 1.6 m tall body
+	assert_that(bar.visible).is_true()
+	var background: Node = bar.get_node_or_null("Placeholder_HealthBarBackground")
+	var fill: Node = bar.get_node_or_null("Placeholder_HealthBarFill")
+	assert_that(background).is_not_null()
+	assert_that(fill).is_not_null()
+	assert_that(background.is_in_group("ai_placeholder")).is_true()
+	assert_that(fill.is_in_group("ai_placeholder")).is_true()
+	assert_that((background as MeshInstance3D).mesh is QuadMesh).is_true()
+	assert_that((fill as MeshInstance3D).mesh is QuadMesh).is_true()
+	var bg_material := (background as MeshInstance3D).get_active_material(0) as StandardMaterial3D
+	var fill_material := (fill as MeshInstance3D).get_active_material(0) as StandardMaterial3D
+	assert_that(bg_material.billboard_mode == BaseMaterial3D.BILLBOARD_ENABLED).is_true() # always faces the camera
+	assert_that(fill_material.billboard_mode == BaseMaterial3D.BILLBOARD_ENABLED).is_true()
+	assert_that(absf((fill as MeshInstance3D).scale.x - 1.0) < 0.0001).is_true() # full bar at full health
+
+
+func test_health_fraction_clamps_between_zero_and_one() -> void:
+	assert_that(Enemy.health_fraction(100.0, 100.0)).is_equal(1.0)
+	assert_that(Enemy.health_fraction(70.0, 100.0)).is_equal(0.7)
+	assert_that(Enemy.health_fraction(0.0, 100.0)).is_equal(0.0)
+	assert_that(Enemy.health_fraction(-5.0, 100.0)).is_equal(0.0)
+	assert_that(Enemy.health_fraction(150.0, 100.0)).is_equal(1.0)
+	assert_that(Enemy.health_fraction(10.0, 0.0)).is_equal(0.0) # degenerate max: no division by zero
+
+
+func test_take_damage_reduces_health_scales_the_bar_and_pushes_the_enemy_away_from_the_strike() -> void:
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false) # the knockback velocity is inspected, not integrated
+	add_child(enemy)
+	enemy.global_position = Vector3(5, 0, 0)
+	enemy.take_damage(30.0, Vector3.ZERO) # struck from the origin: pushed toward +X
+	assert_that(enemy.alive).is_true()
+	assert_that(enemy.health).is_equal(70.0)
+	assert_that(absf(enemy.velocity.x - enemy.knockback_speed) < 0.0001).is_true()
+	assert_that(absf(enemy.velocity.z) < 0.0001).is_true()
+	var fill := enemy.get_node("Placeholder_HealthBar/Placeholder_HealthBarFill") as MeshInstance3D
+	assert_that(absf(fill.scale.x - 0.7) < 0.0001).is_true() # the bar shows 70%
+	assert_that(absf(fill.position.x - (-0.5 * 0.3)) < 0.0001).is_true() # the fill stays anchored at the left edge
+
+
+func test_take_damage_clamps_at_zero_kills_the_enemy_and_hides_the_bar() -> void:
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	enemy.global_position = Vector3(5, 0, 0)
+	enemy.take_damage(250.0, Vector3.ZERO)
+	assert_that(enemy.health).is_equal(0.0)
+	assert_that(enemy.alive).is_false()
+	assert_that(enemy.get_node("Placeholder_HealthBar").visible).is_false()
+	enemy.take_damage(10.0, Vector3.ZERO) # a dead enemy takes no further damage
+	assert_that(enemy.health).is_equal(0.0)
+
+
+func test_dead_enemy_stops_chasing() -> void:
+	var player: Player = auto_free(Player.new())
+	player.add_to_group("player")
+	add_child(player)
+	player.global_position = Vector3(0, 0, 5) # inside detection radius and leash
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	enemy.target = player
+	assert_that(enemy.compute_chase_velocity()).is_not_equal(Vector3.ZERO) # alive: chases
+	enemy.take_damage(1000.0, Vector3.ZERO)
+	assert_that(enemy.compute_chase_velocity()).is_equal(Vector3.ZERO) # dead: stands down
+
+
+func test_dead_enemy_falls_onto_its_side_away_from_the_strike_and_stays_down() -> void:
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false) # tests step _physics_process manually
+	enemy.gravity = 0.0 # no floor in the test scene: keep y fixed while the fall plays out
+	add_child(enemy)
+	enemy.global_position = Vector3(2, 0, 0)
+	enemy.take_damage(1000.0, Vector3.ZERO) # struck from -X: falls toward +X
+	assert_that(enemy.alive).is_false()
+	assert_that(absf((enemy.basis * Vector3.UP).y - 1.0) < 0.0001).is_true() # still upright at the moment of death
+	for i in 60: # 1 s: twice the death fall duration
+		enemy._physics_process(1.0 / 60.0)
+	var up := enemy.basis * Vector3.UP
+	assert_that(absf(up.y) < 0.01).is_true() # lying down: the up axis is horizontal
+	assert_that(absf(up.length() - 1.0) < 0.01).is_true()
+	assert_that(up.x > 0.9).is_true() # tipped away from the strike (+X)
+	var fallen := enemy.basis
+	for i in 10:
+		enemy._physics_process(1.0 / 60.0)
+	assert_that(enemy.basis.is_equal_approx(fallen)).is_true() # stays down
