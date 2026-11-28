@@ -440,3 +440,24 @@ func test_each_hit_scales_the_fill_and_keeps_its_left_edge_anchored_to_the_backg
 		# fill left edge stays at the background's left edge (-width/2), only the right edge retreats
 		assert_that(absf(fill.position.x - 0.5 * fill.scale.x + 0.5) < 0.0001).is_true()
 		assert_that(fill.position.z > 0.0).is_true() # still offset toward the camera: in front of the background
+
+
+func test_death_fall_completes_from_a_non_orthonormal_turned_basis() -> void:
+	# regression: Basis.slerp calls get_quaternion(), which errors on a basis that
+	# is not exactly normalized and then yields identity, so the fall stalled
+	# upright. A chase turn leaves the enemy basis microscopically non-orthonormal;
+	# simulate that with a yaw basis whose X column is scaled by 1 - 1e-5.
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false) # tests step _physics_process manually
+	enemy.gravity = 0.0 # no floor in the test scene: keep y fixed while the fall plays out
+	add_child(enemy)
+	enemy.global_position = Vector3(2, 0, 0)
+	enemy.basis = Basis(Vector3(0.99999, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1)) * Basis(Vector3.UP, 1.1)
+	var push_dir := Vector3(1, 0, 0) # struck from the origin: pushed toward +X
+	enemy.take_damage(1000.0, Vector3.ZERO)
+	assert_that(enemy.alive).is_false()
+	for i in 60: # twice the death fall duration
+		enemy._physics_process(1.0 / 60.0)
+	var up := enemy.basis * Vector3.UP
+	assert_that(absf(up.y) < 0.01).is_true() # lying down: the up axis is horizontal
+	assert_that(up.dot(push_dir) > 0.9).is_true() # tipped away from the strike

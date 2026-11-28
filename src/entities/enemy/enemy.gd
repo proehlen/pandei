@@ -206,17 +206,23 @@ func die() -> void:
 		return
 	alive = false
 	_death_time = 0.0
-	_death_start_basis = basis
+	# Basis.slerp (used by the fall animation) requires an exactly normalized
+	# basis; a chase turn leaves the basis microscopically non-orthonormal, so
+	# store orthonormalized copies or the slerp errors out and the fall stalls
+	_death_start_basis = basis.orthonormalized()
 	var push := _last_hit_direction
 	if push.is_zero_approx():
 		push = Vector3.RIGHT
-	var local_push := basis.inverse() * push
-	if local_push.is_zero_approx():
-		local_push = Vector3.RIGHT
+	var local_push := _death_start_basis.inverse() * push
+	var local_horizontal := Vector3(local_push.x, 0.0, local_push.z) # drop float-error y: the push is horizontal
+	if local_horizontal.is_zero_approx():
+		local_horizontal = Vector3.RIGHT
 	# rotate about the horizontal axis perpendicular to the hit so the top of
-	# the model tips toward the push direction and it lands on its side
-	var axis := Vector3.UP.cross(local_push.normalized())
-	_death_target_basis = basis * Basis(axis, PI / 2.0)
+	# the model tips toward the push direction and it lands on its side; UP is
+	# perpendicular to the horizontal push, so the cross product is unit length
+	# (Basis(axis, angle) requires a normalized axis)
+	var axis := Vector3.UP.cross(local_horizontal.normalized())
+	_death_target_basis = (_death_start_basis * Basis(axis, PI / 2.0)).orthonormalized()
 	_update_health_bar() # hides the bar
 
 
