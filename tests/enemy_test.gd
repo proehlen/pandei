@@ -325,6 +325,9 @@ func test_enemy_starts_alive_at_full_health_with_a_bar_over_its_head() -> void:
 	assert_that(fill_material.billboard_mode == BaseMaterial3D.BILLBOARD_DISABLED).is_true()
 	assert_that(bg_material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED).is_true()
 	assert_that(fill_material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED).is_true()
+	# the bar is UI, not scene geometry: it must not cast shadows
+	assert_that((background as MeshInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF).is_true()
+	assert_that((fill as MeshInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF).is_true()
 	assert_that(absf((fill as MeshInstance3D).scale.x - 1.0) < 0.0001).is_true() # full bar at full health
 
 
@@ -400,7 +403,7 @@ func test_dead_enemy_falls_onto_its_side_away_from_the_strike_and_stays_down() -
 	assert_that(enemy.basis.is_equal_approx(fallen)).is_true() # stays down
 
 
-func test_health_bar_faces_the_camera_and_the_fill_stays_in_front_of_the_background_from_either_side() -> void:
+func test_health_bar_lies_flat_in_the_screen_plane_and_the_fill_stays_in_front_from_either_side() -> void:
 	var packed: PackedScene = load("res://src/core/main.tscn")
 	var main: Node = auto_free(packed.instantiate())
 	add_child(main) # brings the active Camera3D
@@ -412,9 +415,11 @@ func test_health_bar_faces_the_camera_and_the_fill_stays_in_front_of_the_backgro
 	var camera := main.get_node("Camera3D") as Camera3D
 	for cam_z in [-6.0, 18.0]: # camera on the -Z side of the enemy (z=6), then on the +Z side
 		camera.global_position = Vector3(0, 10.5, cam_z)
+		camera.global_rotation = Vector3(-1.1257, PI + 0.7, 0.0) # a different yaw, to prove the bar follows the camera frame
 		enemy._process(0.0) # face the bar at the camera, synchronously (no frames run during this test)
-		var to_camera := (camera.global_position - bar.global_position).normalized()
-		assert_that((bar.global_basis * Vector3(0, 0, 1)).dot(to_camera) > 0.999).is_true() # the quads' +Z normal faces the camera
+		# the bar's local frame equals the camera's: the quads lie in the screen
+		# plane, flat and parallel to the top/bottom screen edges (no world-up tilt)
+		assert_that(bar.global_basis.is_equal_approx(camera.global_basis)).is_true()
 		assert_that(camera.global_position.distance_to(fill.global_position) < camera.global_position.distance_to(background.global_position)).is_true() # fill strictly in front: no z-fighting from this side
 
 

@@ -121,10 +121,11 @@ func _process(_delta: float) -> void:
 	_face_health_bar_to_camera()
 
 
-## Rotates the health bar so its local +Z (the quads' normal) points at the
-## active camera. The fill quad sits at +Z of the background quad, so this
-## keeps the fill in front along the view direction from any camera side,
-## instead of z-fighting with the background as the camera moves around.
+## Aligns the health bar's local frame with the active camera's frame: the
+## quads then lie exactly in the screen plane (flat, parallel to the top and
+## bottom screen edges, no world-up tilt when the camera is pitched), and the
+## fill quad's +Z offset stays toward the camera so it renders in front of the
+## background from any camera side instead of z-fighting with it.
 func _face_health_bar_to_camera() -> void:
 	var bar := get_node_or_null("Placeholder_HealthBar") as Node3D
 	if bar == null or not bar.visible:
@@ -132,14 +133,7 @@ func _face_health_bar_to_camera() -> void:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
 		return
-	var to_camera := camera.global_position - bar.global_position
-	if to_camera.is_zero_approx():
-		return
-	var dir := -to_camera.normalized() # Basis.looking_at points -Z along dir: this puts +Z toward the camera
-	var up := Vector3.UP
-	if absf(dir.y) > 0.999: # camera almost straight above/below: pick a non-parallel up
-		up = Vector3.FORWARD
-	bar.global_basis = Basis.looking_at(dir, up)
+	bar.global_basis = camera.global_basis # camera +Z points back at the viewer, so the bar's +Z (quad normal) faces the camera
 
 
 func _physics_process(delta: float) -> void:

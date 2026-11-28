@@ -59,10 +59,12 @@ surface_material_override/0 = SubResource("StandardMaterial3D_hand")
 position = Vector3(0, 2.05, 0)
 
 [node name="Placeholder_HealthBarBackground" type="MeshInstance3D" parent="Placeholder_HealthBar" groups=["ai_placeholder"]]
+cast_shadow = 0
 mesh = SubResource("QuadMesh_healthbar_bg")
 surface_material_override/0 = SubResource("StandardMaterial3D_healthbar_bg")
 
 [node name="Placeholder_HealthBarFill" type="MeshInstance3D" parent="Placeholder_HealthBar" groups=["ai_placeholder"]]
 position = Vector3(0, 0, 0.01)
+cast_shadow = 0
 mesh = SubResource("QuadMesh_healthbar_fill")
 surface_material_override/0 = SubResource("StandardMaterial3D_healthbar_fill")
