@@ -297,7 +297,7 @@ func test_chasing_enemy_stops_at_capsule_contact_instead_of_reaching_the_player(
 	assert_that(gap >= contact - 0.05).is_true() # ...but stops at contact instead of overlapping
 
 
-func test_enemy_starts_alive_at_full_health_with_a_billboard_bar_over_its_head() -> void:
+func test_enemy_starts_alive_at_full_health_with_a_bar_over_its_head() -> void:
 	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
 	add_child(enemy) # _ready fills health and refreshes the bar
 	assert_that(enemy.alive).is_true()
@@ -317,8 +317,14 @@ func test_enemy_starts_alive_at_full_health_with_a_billboard_bar_over_its_head()
 	assert_that((fill as MeshInstance3D).mesh is QuadMesh).is_true()
 	var bg_material := (background as MeshInstance3D).get_active_material(0) as StandardMaterial3D
 	var fill_material := (fill as MeshInstance3D).get_active_material(0) as StandardMaterial3D
-	assert_that(bg_material.billboard_mode == BaseMaterial3D.BILLBOARD_ENABLED).is_true() # always faces the camera
-	assert_that(fill_material.billboard_mode == BaseMaterial3D.BILLBOARD_ENABLED).is_true()
+	# the quads must NOT use shader billboarding: BILLBOARD_ENABLED discards the
+	# node scale unless billboard_keep_scale is set, which made the fill ignore
+	# its health scaling and drift off the background. The bar container faces
+	# the camera in _process instead (see the facing test below).
+	assert_that(bg_material.billboard_mode == BaseMaterial3D.BILLBOARD_DISABLED).is_true()
+	assert_that(fill_material.billboard_mode == BaseMaterial3D.BILLBOARD_DISABLED).is_true()
+	assert_that(bg_material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED).is_true()
+	assert_that(fill_material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED).is_true()
 	assert_that(absf((fill as MeshInstance3D).scale.x - 1.0) < 0.0001).is_true() # full bar at full health
 
 
@@ -410,3 +416,22 @@ func test_health_bar_faces_the_camera_and_the_fill_stays_in_front_of_the_backgro
 		var to_camera := (camera.global_position - bar.global_position).normalized()
 		assert_that((bar.global_basis * Vector3(0, 0, 1)).dot(to_camera) > 0.999).is_true() # the quads' +Z normal faces the camera
 		assert_that(camera.global_position.distance_to(fill.global_position) < camera.global_position.distance_to(background.global_position)).is_true() # fill strictly in front: no z-fighting from this side
+
+
+func test_each_hit_scales_the_fill_and_keeps_its_left_edge_anchored_to_the_background() -> void:
+	# regression: with shader billboarding on the fill, the node scale was
+	# discarded, so each hit only shifted the full-width fill left and it
+	# drifted off the background. The fill must shrink in place, left edge fixed.
+	var enemy: Enemy = auto_free((load("res://src/entities/enemy/enemy.tscn") as PackedScene).instantiate())
+	enemy.set_physics_process(false)
+	add_child(enemy)
+	enemy.global_position = Vector3(5, 0, 0)
+	var fill := enemy.get_node("Placeholder_HealthBar/Placeholder_HealthBarFill") as MeshInstance3D
+	var hits := int(enemy.max_health / 25.0) # 25 damage per hit, as the sword deals
+	for hit in hits:
+		enemy.take_damage(25.0, Vector3.ZERO)
+		var fraction := Enemy.health_fraction(enemy.health, enemy.max_health)
+		assert_that(absf(fill.scale.x - fraction) < 0.0001).is_true() # the fill actually narrows with HP
+		# fill left edge stays at the background's left edge (-width/2), only the right edge retreats
+		assert_that(absf(fill.position.x - 0.5 * fill.scale.x + 0.5) < 0.0001).is_true()
+		assert_that(fill.position.z > 0.0).is_true() # still offset toward the camera: in front of the background
